@@ -20,9 +20,11 @@ import {
   Palette,
   StickyNote,
   Layout,
+  Upload,
 } from 'lucide-react';
 import { expandContent } from '../services/geminiService';
 import { ResizeHandles } from './ResizeHandles';
+import { ContainerSettings } from './ContainerSettings';
 
 interface DraggableItemProps {
   item: BoardItem;
@@ -47,6 +49,9 @@ interface DraggableItemProps {
   onResizeStart?: () => void;
   onResizeEnd?: () => void;
   onEdit?: (id: string) => void;
+  onContainerPropertyChange?: (id: string, property: Partial<BoardItem>) => void;
+  onToggleLockContainer?: (id: string) => void;
+  onExportContainer?: (id: string) => void;
   zoom?: number; // Passed for resizing calculation
 }
 
@@ -69,6 +74,10 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
   onResizeStart,
   onResizeEnd,
   onEdit,
+  onContainerPropertyChange,
+  onToggleLockContainer,
+  onExportContainer,
+  onDuplicate,
   zoom = 1,
 }) => {
   const [isExpanding, setIsExpanding] = useState(false);
@@ -263,11 +272,41 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
   const renderContent = () => {
     switch (item.type) {
       case ItemType.CONTAINER:
+        // Determine border style classes
+        const borderStyleClass =
+          item.borderStyle === 'dashed' ? 'border-dashed' :
+          item.borderStyle === 'rounded' ? 'rounded-2xl' :
+          'border-solid rounded-xl';
+
+        const padding = item.padding || 12;
+
+        // Background image style
+        const backgroundStyle = item.backgroundImage
+          ? {
+              backgroundImage: `url(${item.backgroundImage})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat'
+            }
+          : {};
+
         return (
-          <div className="flex flex-col h-full w-full relative group/container">
+          <div className={`flex flex-col h-full w-full relative group/container ${borderStyleClass} border-2 border-gray-300 overflow-hidden`}>
+            {/* Container Settings */}
+            {onContainerPropertyChange && onToggleLockContainer && (
+              <ContainerSettings
+                container={item}
+                onPropertyChange={onContainerPropertyChange}
+                onToggleLock={onToggleLockContainer}
+                onClone={onDuplicate}
+                onExport={onExportContainer}
+              />
+            )}
+
+            {/* Sticky Header */}
             <div
-              className={`h-12 cursor-grab active:cursor-grabbing flex items-center px-3 rounded-t-xl transition-colors ${item.collapsed ? 'rounded-b-xl bg-gray-200/80' : 'bg-black/5'}`}
-              onMouseDown={handleMouseDown}
+              className={`sticky top-0 z-10 h-12 ${item.locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'} flex items-center px-3 transition-colors ${item.collapsed ? 'rounded-b-xl bg-gray-200/80' : 'bg-black/5 backdrop-blur-sm'}`}
+              onMouseDown={item.locked ? undefined : handleMouseDown}
               onDoubleClick={() => onToggleCollapse && onToggleCollapse(item.id)}
             >
               <button
@@ -288,11 +327,71 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
                 onChange={(e) => onContentChange(item.id, e.target.value)}
                 onMouseDown={(e) => e.stopPropagation()}
                 placeholder="GROUP TITLE"
-                className="bg-transparent border-none focus:outline-none font-bold text-gray-600 placeholder-gray-400 text-sm w-full uppercase tracking-wide cursor-text"
+                className="bg-transparent border-none focus:outline-none font-bold text-gray-600 placeholder-gray-400 text-sm flex-1 uppercase tracking-wide cursor-text"
               />
+
+              {/* Lock Indicator */}
+              {item.locked && (
+                <span className="ml-2 text-gray-400" title="Locked">
+                  🔒
+                </span>
+              )}
             </div>
+
+            {/* Mini Toolbar - Only show when not collapsed */}
+            {!item.collapsed && onQuickAdd && (
+              <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200 bg-white/50 backdrop-blur-sm sticky top-12 z-10">
+                <button
+                  className="flex-1 flex items-center justify-center gap-1 py-1 rounded hover:bg-white hover:shadow-sm text-xs text-gray-500 transition-all"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQuickAdd(item.id, ItemType.NOTE);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  title="Add Note"
+                >
+                  <StickyNote size={12} />
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center gap-1 py-1 rounded hover:bg-white hover:shadow-sm text-xs text-gray-500 transition-all"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQuickAdd(item.id, ItemType.TODO);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  title="Add Task"
+                >
+                  <CheckSquare size={12} />
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center gap-1 py-1 rounded hover:bg-white hover:shadow-sm text-xs text-gray-500 transition-all"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQuickAdd(item.id, ItemType.IMAGE);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  title="Add Image"
+                >
+                  <Upload size={12} />
+                </button>
+              </div>
+            )}
+
+            {/* Container Body */}
             {!item.collapsed && (
-              <div className="flex-1 w-full rounded-b-xl" onMouseDown={handleMouseDown} />
+              <div
+                className="flex-1 w-full overflow-auto"
+                style={{
+                  padding: `${padding}px`,
+                  ...backgroundStyle
+                }}
+                onMouseDown={item.locked ? undefined : handleMouseDown}
+              >
+                {/* Background overlay for better text visibility */}
+                {item.backgroundImage && (
+                  <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] pointer-events-none" />
+                )}
+              </div>
             )}
           </div>
         );
@@ -427,6 +526,78 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
         const textColor = isDark ? 'text-gray-200' : 'text-gray-800';
         const placeholderColor = isDark ? 'placeholder-gray-500' : 'placeholder-gray-400';
 
+        // Word counter
+        const wordCount = item.content.trim().split(/\s+/).filter(w => w.length > 0).length;
+        const charCount = item.content.length;
+
+        // Extract hashtags
+        const hashtagMatches = item.content.match(/#[\w]+/g) || [];
+        const uniqueTags = [...new Set(hashtagMatches.map(tag => tag.substring(1)))]; // Remove # and dedupe
+
+        // Auto-save indicator
+        const lastSavedText = item.lastSaved
+          ? new Date(item.lastSaved).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          : null;
+
+        // Handle Markdown shortcuts
+        const handleNoteKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            const textarea = e.currentTarget;
+            const cursorPos = textarea.selectionStart;
+            const textBefore = item.content.substring(0, cursorPos);
+            const textAfter = item.content.substring(cursorPos);
+            const currentLine = textBefore.split('\n').pop() || '';
+
+            // Heading shortcuts (##, ###, etc)
+            const headingMatch = currentLine.match(/^(#{1,6})\s$/);
+            if (headingMatch && e.key === ' ') {
+              e.preventDefault();
+              const newContent = textBefore + textAfter;
+              onContentChange(item.id, newContent);
+              setTimeout(() => {
+                textarea.selectionStart = textarea.selectionEnd = cursorPos;
+              }, 0);
+              return;
+            }
+
+            // Bold (**text**)
+            const boldMatch = currentLine.match(/\*\*(.+?)\*\*$/);
+            if (boldMatch && e.key === ' ') {
+              const replacement = `**${boldMatch[1]}**`;
+              const newContent = textBefore.substring(0, textBefore.length - boldMatch[0].length) + replacement + ' ' + textAfter;
+              onContentChange(item.id, newContent);
+              setTimeout(() => {
+                textarea.selectionStart = textarea.selectionEnd = cursorPos + 1;
+              }, 0);
+              return;
+            }
+
+            // Italic (__text__)
+            const italicMatch = currentLine.match(/__(.+?)__$/);
+            if (italicMatch && e.key === ' ') {
+              const replacement = `_${italicMatch[1]}_`;
+              const newContent = textBefore.substring(0, textBefore.length - italicMatch[0].length) + replacement + ' ' + textAfter;
+              onContentChange(item.id, newContent);
+              setTimeout(() => {
+                textarea.selectionStart = textarea.selectionEnd = cursorPos - italicMatch[0].length + replacement.length + 1;
+              }, 0);
+              return;
+            }
+
+            // Checklist syntax (- [ ] or - [x])
+            const checkboxMatch = currentLine.match(/^- \[([ x])\]\s$/);
+            if (checkboxMatch && e.key === 'Enter') {
+              e.preventDefault();
+              const newContent = textBefore + '\n- [ ] ' + textAfter;
+              onContentChange(item.id, newContent);
+              setTimeout(() => {
+                textarea.selectionStart = textarea.selectionEnd = cursorPos + 7;
+              }, 0);
+              return;
+            }
+          }
+        };
+
         return (
           <div className="flex flex-col h-full relative group/note">
             <div
@@ -454,36 +625,91 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
               onDoubleClick={handleDoubleClick}
             >
               {isEditing ? (
-                <textarea
-                  ref={textAreaRef}
-                  className={`w-full h-full p-4 pt-2 bg-transparent resize-none focus:outline-none ${textColor} ${placeholderColor}`}
-                  value={item.content}
-                  onChange={(e) => onContentChange(item.id, e.target.value)}
-                  onBlur={() => onEdit && onEdit('')} // Clear edit mode on blur logic handled by parent? No, parent needs to know to clear.
-                  // Actually, blur handling is tricky because clicking 'Expand AI' might blur.
-                  // Let's stick to global selection logic or just keep it simple:
-                  // Editing is active until user clicks elsewhere (handled by App.tsx handleCanvasMouseDown)
-                  placeholder="Type something..."
-                  style={{
-                    cursor: 'text',
-                    ...getTypographyStyle(item.style),
-                  }}
-                  autoFocus
-                />
+                <>
+                  <textarea
+                    ref={textAreaRef}
+                    className={`w-full h-full p-4 pt-2 pb-8 bg-transparent resize-none focus:outline-none ${textColor} ${placeholderColor}`}
+                    value={item.content}
+                    onChange={(e) => onContentChange(item.id, e.target.value)}
+                    onKeyDown={handleNoteKeyDown}
+                    placeholder="Type something..."
+                    style={{
+                      cursor: 'text',
+                      ...getTypographyStyle(item.style),
+                    }}
+                    autoFocus
+                  />
+                  {/* Bottom stats bar */}
+                  <div className={`absolute bottom-0 left-0 right-0 h-6 px-2 flex items-center justify-between text-[10px] ${isDark ? 'text-gray-500 bg-black/20' : 'text-gray-400 bg-white/80'} border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <div className="flex items-center gap-3">
+                      <span>{wordCount} word{wordCount !== 1 ? 's' : ''}</span>
+                      <span>{charCount} char{charCount !== 1 ? 's' : ''}</span>
+                    </div>
+                    {lastSavedText && (
+                      <span className="opacity-70">Saved {lastSavedText}</span>
+                    )}
+                  </div>
+                </>
               ) : (
-                <div
-                  className={`w-full h-full p-4 pt-2 overflow-y-auto prose prose-sm max-w-none ${isDark ? 'prose-invert text-gray-200' : 'text-gray-800'}`}
-                  style={{
-                    ...getTypographyStyle(item.style),
-                    cursor: 'default',
-                  }}
-                >
-                  {item.content ? (
-                    <ReactMarkdown>{item.content}</ReactMarkdown>
-                  ) : (
-                    <span className={`italic ${placeholderColor}`}>Double-click to edit...</span>
+                <>
+                  <div
+                    className={`w-full ${uniqueTags.length > 0 ? 'h-[calc(100%-1.5rem)]' : 'h-full'} p-4 pt-2 overflow-y-auto prose prose-sm max-w-none ${isDark ? 'prose-invert text-gray-200' : 'text-gray-800'}`}
+                    style={{
+                      ...getTypographyStyle(item.style),
+                      cursor: 'default',
+                    }}
+                  >
+                    {item.content ? (
+                      <ReactMarkdown
+                        components={{
+                          // Custom checkbox rendering for checklist syntax
+                          li: ({ node, children, ...props }) => {
+                            const text = node?.children?.[0];
+                            if (text && 'value' in text) {
+                              const value = String(text.value);
+                              const checkboxMatch = value.match(/^\[([ x])\]\s/);
+                              if (checkboxMatch) {
+                                const isChecked = checkboxMatch[1] === 'x';
+                                const restText = value.substring(checkboxMatch[0].length);
+                                return (
+                                  <li {...props} className="list-none flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      readOnly
+                                      className="cursor-default"
+                                    />
+                                    <span className={isChecked ? 'line-through opacity-60' : ''}>
+                                      {restText}
+                                    </span>
+                                  </li>
+                                );
+                              }
+                            }
+                            return <li {...props}>{children}</li>;
+                          },
+                        }}
+                      >
+                        {item.content}
+                      </ReactMarkdown>
+                    ) : (
+                      <span className={`italic ${placeholderColor}`}>Double-click to edit...</span>
+                    )}
+                  </div>
+                  {/* Tags display */}
+                  {uniqueTags.length > 0 && (
+                    <div className={`absolute bottom-0 left-0 right-0 h-6 px-2 flex items-center gap-1.5 overflow-x-auto text-[10px] ${isDark ? 'bg-black/20 border-gray-700' : 'bg-white/80 border-gray-200'} border-t`}>
+                      {uniqueTags.map((tag, index) => (
+                        <span
+                          key={index}
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded whitespace-nowrap ${isDark ? 'bg-purple-900/30 text-purple-300' : 'bg-purple-100 text-purple-700'}`}
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
                   )}
-                </div>
+                </>
               )}
             </div>
           </div>

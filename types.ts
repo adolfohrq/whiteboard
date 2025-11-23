@@ -13,6 +13,7 @@ export enum ItemType {
 export interface Position {
   x: number;
   y: number;
+  pressure?: number; // Pressure value from 0 to 1 (for stylus/tablet support)
 }
 
 export interface Todo {
@@ -56,6 +57,19 @@ export interface BoardItem {
 
   // Container Specific
   collapsed?: boolean;
+  padding?: number; // Internal padding in pixels
+  backgroundImage?: string; // Background image URL
+  borderStyle?: 'solid' | 'dashed' | 'rounded'; // Border style
+  autoResize?: boolean; // Auto-expand when adding items
+  autoLayout?: 'none' | 'grid' | 'list' | 'masonry'; // Auto-layout mode
+  sortBy?: 'type' | 'date' | 'size' | 'none'; // Sort contents
+  filterType?: ItemType | 'all'; // Filter view by type
+  pinnedItems?: string[]; // IDs of pinned items
+  locked?: boolean; // Lock container to prevent movement
+
+  // NOTE Specific
+  lastSaved?: number; // Timestamp of last save
+  tags?: string[]; // Hashtags for organization
 
   // Swatch Specific
   swatchColor?: string; // HEX value
@@ -63,6 +77,8 @@ export interface BoardItem {
   // Drawing Specific
   points?: Position[]; // Array of points for the path
   strokeColor?: string;
+  zIndex?: number; // Z-index for layering (higher = front)
+  groupId?: string; // ID for grouping multiple drawings together
 
   style?: ItemStyle;
 }

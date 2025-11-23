@@ -3,6 +3,15 @@ import { BoardItem, Position, Guideline } from '../types';
 
 const SNAP_THRESHOLD = 5;
 
+interface SmartGuidesOptions {
+  isGridEnabled?: boolean;
+  gridSize?: number;
+  canvasCenterX?: number;
+  canvasCenterY?: number;
+  onCenterGuidesChange?: (guides: Array<{ type: 'vertical' | 'horizontal'; position: number }>) => void;
+  snapSensitivity?: number; // Configurable snap threshold
+}
+
 export const useSmartGuides = () => {
   const [guides, setGuides] = useState<Guideline[]>([]);
 
@@ -13,22 +22,67 @@ export const useSmartGuides = () => {
       activeItem: BoardItem,
       currentPos: Position, // The position calculated from drag delta
       otherItems: BoardItem[],
-      zoom: number
+      zoom: number,
+      options: SmartGuidesOptions = {}
     ): { x: number; y: number } => {
       const activeW = activeItem.width || 240;
       const activeH = activeItem.height || 200;
 
-      // Edges of the active item
-      const activeLeft = currentPos.x;
-      const activeCenterX = currentPos.x + activeW / 2;
-      const activeRight = currentPos.x + activeW;
-
-      const activeTop = currentPos.y;
-      const activeCenterY = currentPos.y + activeH / 2;
-      const activeBottom = currentPos.y + activeH;
-
       let newX = currentPos.x;
       let newY = currentPos.y;
+
+      // 1. Grid Snapping (Priority 1 - if enabled)
+      if (options.isGridEnabled && options.gridSize) {
+        const gridSize = options.gridSize;
+        newX = Math.round(newX / gridSize) * gridSize;
+        newY = Math.round(newY / gridSize) * gridSize;
+        // If grid is enabled, skip other snapping and return early
+        setGuides([]);
+        if (options.onCenterGuidesChange) {
+          options.onCenterGuidesChange([]);
+        }
+        return { x: newX, y: newY };
+      }
+
+      // 2. Center Canvas Guides (Priority 2 - if near center)
+      const centerGuidesList: Array<{ type: 'vertical' | 'horizontal'; position: number }> = [];
+      if (options.canvasCenterX !== undefined && options.canvasCenterY !== undefined) {
+        const SNAP_THRESHOLD_CENTER = 10 / zoom;
+        const itemCenterX = newX + activeW / 2;
+        const itemCenterY = newY + activeH / 2;
+
+        // Vertical center guide
+        if (Math.abs(itemCenterX - options.canvasCenterX) < SNAP_THRESHOLD_CENTER) {
+          newX = options.canvasCenterX - activeW / 2;
+          centerGuidesList.push({ type: 'vertical', position: options.canvasCenterX });
+        }
+
+        // Horizontal center guide
+        if (Math.abs(itemCenterY - options.canvasCenterY) < SNAP_THRESHOLD_CENTER) {
+          newY = options.canvasCenterY - activeH / 2;
+          centerGuidesList.push({ type: 'horizontal', position: options.canvasCenterY });
+        }
+      }
+
+      if (options.onCenterGuidesChange) {
+        options.onCenterGuidesChange(centerGuidesList);
+      }
+
+      // If snapped to center, skip item-to-item snapping
+      if (centerGuidesList.length > 0) {
+        setGuides([]);
+        return { x: newX, y: newY };
+      }
+
+      // 3. Item-to-Item Snapping (Priority 3)
+      // Edges of the active item
+      const activeLeft = newX;
+      const activeCenterX = newX + activeW / 2;
+      const activeRight = newX + activeW;
+
+      const activeTop = newY;
+      const activeCenterY = newY + activeH / 2;
+      const activeBottom = newY + activeH;
 
       const newGuides: Guideline[] = [];
 
@@ -38,8 +92,9 @@ export const useSmartGuides = () => {
       // We only snap to the closest item to avoid chaos, or iterate all and find closest snap
       // Simplified: Check all items, prioritize closest snap
 
-      let minDistX = SNAP_THRESHOLD / zoom;
-      let minDistY = SNAP_THRESHOLD / zoom;
+      const effectiveThreshold = options.snapSensitivity !== undefined ? options.snapSensitivity : SNAP_THRESHOLD;
+      let minDistX = effectiveThreshold / zoom;
+      let minDistY = effectiveThreshold / zoom;
 
       let bestGuideX: Guideline | null = null;
       let bestGuideY: Guideline | null = null;

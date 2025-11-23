@@ -43,6 +43,30 @@ import {
   Copy,
   StickyNote,
   X as XIcon,
+  Grid3x3,
+  Maximize2,
+  AlignVerticalSpaceAround,
+  AlignHorizontalSpaceAround,
+  AlignStartVertical,
+  AlignEndVertical,
+  AlignCenterVertical,
+  AlignStartHorizontal,
+  AlignEndHorizontal,
+  AlignCenterHorizontal,
+  Settings,
+  Sliders,
+  Circle,
+  Square,
+  ArrowRight,
+  Minus,
+  PenLine,
+  Eraser,
+  MoveUp,
+  MoveDown,
+  ChevronsUp,
+  ChevronsDown,
+  Group,
+  Ungroup,
 } from 'lucide-react';
 import { Toaster } from './utils/toast';
 import { showError, showSuccess } from './utils/toast';
@@ -58,6 +82,70 @@ import { templates, Template } from './templates';
 
 // Store
 import { useStore } from './store/useStore';
+
+// Helper functions to generate shape points
+const generateShapePoints = (
+  start: Position,
+  end: Position,
+  shape: 'line' | 'rectangle' | 'circle' | 'arrow'
+): Position[] => {
+  switch (shape) {
+    case 'line':
+      return [start, end];
+
+    case 'rectangle': {
+      return [
+        start,
+        { x: end.x, y: start.y },
+        end,
+        { x: start.x, y: end.y },
+        start, // Close the rectangle
+      ];
+    }
+
+    case 'circle': {
+      // Generate a circle using multiple points
+      const centerX = (start.x + end.x) / 2;
+      const centerY = (start.y + end.y) / 2;
+      const radiusX = Math.abs(end.x - start.x) / 2;
+      const radiusY = Math.abs(end.y - start.y) / 2;
+      const points: Position[] = [];
+      const segments = 32;
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+        points.push({
+          x: centerX + Math.cos(angle) * radiusX,
+          y: centerY + Math.sin(angle) * radiusY,
+        });
+      }
+      return points;
+    }
+
+    case 'arrow': {
+      // Arrow: line with arrowhead
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const angle = Math.atan2(dy, dx);
+      const arrowLength = 20;
+      const arrowAngle = Math.PI / 6; // 30 degrees
+
+      const arrowPoint1 = {
+        x: end.x - arrowLength * Math.cos(angle - arrowAngle),
+        y: end.y - arrowLength * Math.sin(angle - arrowAngle),
+      };
+      const arrowPoint2 = {
+        x: end.x - arrowLength * Math.cos(angle + arrowAngle),
+        y: end.y - arrowLength * Math.sin(angle + arrowAngle),
+      };
+
+      return [start, end, arrowPoint1, end, arrowPoint2];
+    }
+
+    default:
+      return [start, end];
+  }
+};
 
 const App: React.FC = () => {
   // -- Global Store --
@@ -131,6 +219,18 @@ const App: React.FC = () => {
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [currentDrawing, setCurrentDrawing] = useState<Position[]>([]);
 
+  // Drawing Tool Configuration
+  const [drawingStrokeColor, setDrawingStrokeColor] = useState('#3B82F6'); // Blue default
+  const [drawingStrokeWidth, setDrawingStrokeWidth] = useState(4); // Medium (2, 4, 8)
+  const [drawingStrokeType, setDrawingStrokeType] = useState<'solid' | 'dashed' | 'dotted'>('solid');
+  const [drawingShape, setDrawingShape] = useState<'freehand' | 'rectangle' | 'circle' | 'arrow' | 'line'>('freehand');
+  const [isEraserMode, setIsEraserMode] = useState(false);
+
+  // Point Editing State
+  const [editingDrawingId, setEditingDrawingId] = useState<string | null>(null);
+  const [draggingPointIndex, setDraggingPointIndex] = useState<number | null>(null);
+  const [pointDragStart, setPointDragStart] = useState<Position | null>(null);
+
   // Lasso Selection State
   const [isLassoMode, setIsLassoMode] = useState(false);
   const [lassoPath, setLassoPath] = useState<Position[]>([]);
@@ -146,6 +246,31 @@ const App: React.FC = () => {
   const [multiDragGhost, setMultiDragGhost] = useState<{
     items: Array<{ id: string; position: Position; width: number; height: number; type: ItemType }>;
   } | null>(null);
+
+  // Snap to Grid State
+  const [isGridEnabled, setIsGridEnabled] = useState(false);
+  const [gridSize, setGridSize] = useState(20); // pixels
+  const [isAltPressed, setIsAltPressed] = useState(false); // Temporary snap disable
+
+  // Smart Guides Configuration
+  const [snapSensitivity, setSnapSensitivity] = useState(5); // 5px, 10px, or 20px
+  const [guideColor, setGuideColor] = useState('#3B82F6'); // Blue
+  const [centerGuideColor, setCenterGuideColor] = useState('#10B981'); // Green
+  const [distanceIndicatorColor, setDistanceIndicatorColor] = useState('#F59E0B'); // Orange
+
+  // Distance indicators
+  const [distanceIndicators, setDistanceIndicators] = useState<Array<{
+    from: Position;
+    to: Position;
+    distance: number;
+    orientation: 'horizontal' | 'vertical';
+  }>>([]);
+
+  // Center guides state
+  const [centerGuides, setCenterGuides] = useState<Array<{
+    type: 'vertical' | 'horizontal';
+    position: number;
+  }>>([]);
 
   // Ghost State for Kanban
   const [ghostPosition, setGhostPosition] = useState<Position | null>(null);
@@ -248,6 +373,125 @@ const App: React.FC = () => {
       width: maxX - minX,
       height: maxY - minY,
     };
+  };
+
+  // -- Smart Guides: Snap to Grid & Alignment Helpers --
+
+  // Calculate distance indicators between active item and nearby items
+  const calculateDistanceIndicators = (
+    activeItem: BoardItem,
+    activePos: Position,
+    otherItems: BoardItem[]
+  ): Array<{ from: Position; to: Position; distance: number; orientation: 'horizontal' | 'vertical' }> => {
+    const indicators: Array<{ from: Position; to: Position; distance: number; orientation: 'horizontal' | 'vertical' }> = [];
+    const DISTANCE_THRESHOLD = 200; // Only show distances within 200px
+
+    const activeW = activeItem.width || 240;
+    const activeH = activeItem.height || 200;
+    const activeRight = activePos.x + activeW;
+    const activeBottom = activePos.y + activeH;
+    const activeCenterX = activePos.x + activeW / 2;
+    const activeCenterY = activePos.y + activeH / 2;
+
+    otherItems.forEach((item) => {
+      if (item.id === activeItem.id) return;
+
+      const targetW = item.width || 240;
+      const targetH = item.height || 200;
+      const targetRight = item.position.x + targetW;
+      const targetBottom = item.position.y + targetH;
+      const targetCenterX = item.position.x + targetW / 2;
+      const targetCenterY = item.position.y + targetH / 2;
+
+      // Horizontal distance (side by side)
+      if (Math.abs(activeCenterY - targetCenterY) < 50) { // Roughly aligned vertically
+        if (activeRight < item.position.x) { // Active is to the left
+          const distance = item.position.x - activeRight;
+          if (distance < DISTANCE_THRESHOLD) {
+            indicators.push({
+              from: { x: activeRight, y: activeCenterY },
+              to: { x: item.position.x, y: targetCenterY },
+              distance: Math.round(distance),
+              orientation: 'horizontal',
+            });
+          }
+        } else if (targetRight < activePos.x) { // Active is to the right
+          const distance = activePos.x - targetRight;
+          if (distance < DISTANCE_THRESHOLD) {
+            indicators.push({
+              from: { x: targetRight, y: targetCenterY },
+              to: { x: activePos.x, y: activeCenterY },
+              distance: Math.round(distance),
+              orientation: 'horizontal',
+            });
+          }
+        }
+      }
+
+      // Vertical distance (above/below)
+      if (Math.abs(activeCenterX - targetCenterX) < 50) { // Roughly aligned horizontally
+        if (activeBottom < item.position.y) { // Active is above
+          const distance = item.position.y - activeBottom;
+          if (distance < DISTANCE_THRESHOLD) {
+            indicators.push({
+              from: { x: activeCenterX, y: activeBottom },
+              to: { x: targetCenterX, y: item.position.y },
+              distance: Math.round(distance),
+              orientation: 'vertical',
+            });
+          }
+        } else if (targetBottom < activePos.y) { // Active is below
+          const distance = activePos.y - targetBottom;
+          if (distance < DISTANCE_THRESHOLD) {
+            indicators.push({
+              from: { x: targetCenterX, y: targetBottom },
+              to: { x: activeCenterX, y: activePos.y },
+              distance: Math.round(distance),
+              orientation: 'vertical',
+            });
+          }
+        }
+      }
+    });
+
+    return indicators;
+  };
+
+  // Snap position to grid
+  const snapToGrid = (position: Position): Position => {
+    if (!isGridEnabled) return position;
+    return {
+      x: Math.round(position.x / gridSize) * gridSize,
+      y: Math.round(position.y / gridSize) * gridSize,
+    };
+  };
+
+  // Check if item is near canvas center and return guide data
+  const getCenterGuides = (itemX: number, itemY: number, itemWidth: number, itemHeight: number) => {
+    const SNAP_THRESHOLD = 10 / zoom; // Snap within 10px (adjusted for zoom)
+    const canvasCenterX = window.innerWidth / 2 / zoom - pan.x / zoom;
+    const canvasCenterY = window.innerHeight / 2 / zoom - pan.y / zoom;
+
+    const itemCenterX = itemX + itemWidth / 2;
+    const itemCenterY = itemY + itemHeight / 2;
+
+    const guides: { type: 'vertical' | 'horizontal'; position: number }[] = [];
+    let snappedX = itemX;
+    let snappedY = itemY;
+
+    // Vertical center guide
+    if (Math.abs(itemCenterX - canvasCenterX) < SNAP_THRESHOLD) {
+      guides.push({ type: 'vertical', position: canvasCenterX });
+      snappedX = canvasCenterX - itemWidth / 2;
+    }
+
+    // Horizontal center guide
+    if (Math.abs(itemCenterY - canvasCenterY) < SNAP_THRESHOLD) {
+      guides.push({ type: 'horizontal', position: canvasCenterY });
+      snappedY = canvasCenterY - itemHeight / 2;
+    }
+
+    return { guides, snappedPosition: { x: snappedX, y: snappedY } };
   };
 
   // -- Navigation & Routing Logic --
@@ -826,9 +1070,10 @@ const App: React.FC = () => {
       idsToDup.forEach((id) => {
         const item = board.items.find((i) => i.id === id);
         if (item) {
+          const newItemId = crypto.randomUUID();
           const newItem = {
             ...item,
-            id: crypto.randomUUID(),
+            id: newItemId,
             position: { x: item.position.x + 30, y: item.position.y + 30 },
             todos: item.todos
               ? item.todos.map((t) => ({ ...t, id: crypto.randomUUID() }))
@@ -837,6 +1082,42 @@ const App: React.FC = () => {
           };
           newItems.push(newItem);
           newSelection.push(newItem.id);
+
+          // If duplicating a CONTAINER or KANBAN, also duplicate its children
+          if (item.type === ItemType.CONTAINER || item.type === ItemType.KANBAN) {
+            const parentW = item.width || (item.type === ItemType.KANBAN ? 300 : 500);
+            const parentH = item.height || 400;
+
+            board.items.forEach((child) => {
+              if (child.id === id) return;
+              const cx = child.position.x + (child.width || 240) / 2;
+              const cy = child.position.y + (child.height || 200) / 2;
+
+              // Check if child is inside the container
+              if (
+                cx > item.position.x &&
+                cx < item.position.x + parentW &&
+                cy > item.position.y &&
+                cy < item.position.y + parentH
+              ) {
+                // Clone the child with offset relative to new container position
+                const offsetX = child.position.x - item.position.x;
+                const offsetY = child.position.y - item.position.y;
+                const newChild = {
+                  ...child,
+                  id: crypto.randomUUID(),
+                  position: {
+                    x: newItem.position.x + offsetX,
+                    y: newItem.position.y + offsetY,
+                  },
+                  todos: child.todos
+                    ? child.todos.map((t) => ({ ...t, id: crypto.randomUUID() }))
+                    : undefined,
+                };
+                newItems.push(newChild);
+              }
+            });
+          }
         }
       });
 
@@ -868,9 +1149,33 @@ const App: React.FC = () => {
     }));
   }, [pushHistory, selectedIds, currentBoardId, updateBoard]);
 
+  const handleContainerPropertyChange = useCallback((id: string, property: Partial<BoardItem>) => {
+    pushHistory();
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((i) => (i.id === id ? { ...i, ...property } : i)),
+    }));
+  }, [pushHistory, currentBoardId, updateBoard]);
+
+  const handleToggleLockContainer = useCallback((id: string) => {
+    pushHistory();
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((i) => (i.id === id ? { ...i, locked: !i.locked } : i)),
+    }));
+  }, [pushHistory, currentBoardId, updateBoard]);
+
+  const handleExportContainer = useCallback((id: string) => {
+    const { exportContainer } = require('./utils/exportContainer');
+    const currentBoard = boards[currentBoardId];
+    exportContainer(id, items, currentBoard.title);
+  }, [boards, currentBoardId, items]);
+
   const handleContentChange = useCallback((id: string, content: string) => {
     const sanitizedContent = sanitizeText(content);
     const item = items.find((i) => i.id === id);
+    const timestamp = Date.now();
+
     if (item?.type === ItemType.BOARD && item.linkedBoardId) {
       const newBoards = { ...boards };
       if (newBoards[item.linkedBoardId]) {
@@ -884,7 +1189,16 @@ const App: React.FC = () => {
     } else {
       updateBoard(currentBoardId, (board) => ({
         ...board,
-        items: board.items.map((i) => (i.id === id ? { ...i, content: sanitizedContent } : i)),
+        items: board.items.map((i) =>
+          i.id === id
+            ? {
+                ...i,
+                content: sanitizedContent,
+                // Update lastSaved timestamp for NOTE items
+                ...(i.type === ItemType.NOTE ? { lastSaved: timestamp } : {})
+              }
+            : i
+        ),
       }));
     }
   }, [items, boards, currentBoardId, setBoards, updateBoard]);
@@ -1046,11 +1360,317 @@ const App: React.FC = () => {
     }));
   }, [selectedIds, items, getItemDimensions, updateBoard, currentBoardId, pushHistory]);
 
+  // Smart Distribution: Equal spacing between items
+  const handleDistribute = useCallback((direction: 'horizontal' | 'vertical') => {
+    if (selectedIds.length < 3) {
+      showError('Select at least 3 items to distribute');
+      return;
+    }
+
+    pushHistory();
+    const selectedItems = items.filter((i) => selectedIds.includes(i.id));
+
+    // Sort by position
+    selectedItems.sort((a, b) => {
+      if (direction === 'horizontal') return a.position.x - b.position.x;
+      return a.position.y - b.position.y;
+    });
+
+    const first = selectedItems[0];
+    const last = selectedItems[selectedItems.length - 1];
+
+    if (direction === 'horizontal') {
+      const firstRight = first.position.x + (first.width || 240);
+      const lastLeft = last.position.x;
+      const totalGapSpace = lastLeft - firstRight;
+      const gapCount = selectedItems.length - 1;
+      const equalGap = totalGapSpace / gapCount;
+
+      let currentX = firstRight;
+      const newPositions: Record<string, Position> = {};
+
+      // Keep first item fixed
+      selectedItems.slice(1, -1).forEach((item) => {
+        newPositions[item.id] = {
+          x: currentX + equalGap,
+          y: item.position.y,
+        };
+        currentX = currentX + equalGap + (item.width || 240);
+      });
+
+      updateBoard(currentBoardId, (board) => ({
+        ...board,
+        items: board.items.map((item) =>
+          newPositions[item.id] ? { ...item, position: newPositions[item.id] } : item
+        ),
+      }));
+      showSuccess('Items distributed horizontally');
+    } else {
+      const firstBottom = first.position.y + (first.height || 200);
+      const lastTop = last.position.y;
+      const totalGapSpace = lastTop - firstBottom;
+      const gapCount = selectedItems.length - 1;
+      const equalGap = totalGapSpace / gapCount;
+
+      let currentY = firstBottom;
+      const newPositions: Record<string, Position> = {};
+
+      // Keep first item fixed
+      selectedItems.slice(1, -1).forEach((item) => {
+        newPositions[item.id] = {
+          x: item.position.x,
+          y: currentY + equalGap,
+        };
+        currentY = currentY + equalGap + (item.height || 200);
+      });
+
+      updateBoard(currentBoardId, (board) => ({
+        ...board,
+        items: board.items.map((item) =>
+          newPositions[item.id] ? { ...item, position: newPositions[item.id] } : item
+        ),
+      }));
+      showSuccess('Items distributed vertically');
+    }
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  // Multi-item Alignment
+  const handleAlign = useCallback((type: 'left' | 'right' | 'top' | 'bottom' | 'center-h' | 'center-v') => {
+    if (selectedIds.length < 2) {
+      showError('Select at least 2 items to align');
+      return;
+    }
+
+    pushHistory();
+    const selectedItems = items.filter((i) => selectedIds.includes(i.id));
+    const newPositions: Record<string, Position> = {};
+
+    if (type === 'left') {
+      const minX = Math.min(...selectedItems.map((i) => i.position.x));
+      selectedItems.forEach((item) => {
+        newPositions[item.id] = { x: minX, y: item.position.y };
+      });
+      showSuccess('Aligned to left');
+    } else if (type === 'right') {
+      const maxRight = Math.max(...selectedItems.map((i) => i.position.x + (i.width || 240)));
+      selectedItems.forEach((item) => {
+        newPositions[item.id] = { x: maxRight - (item.width || 240), y: item.position.y };
+      });
+      showSuccess('Aligned to right');
+    } else if (type === 'top') {
+      const minY = Math.min(...selectedItems.map((i) => i.position.y));
+      selectedItems.forEach((item) => {
+        newPositions[item.id] = { x: item.position.x, y: minY };
+      });
+      showSuccess('Aligned to top');
+    } else if (type === 'bottom') {
+      const maxBottom = Math.max(...selectedItems.map((i) => i.position.y + (i.height || 200)));
+      selectedItems.forEach((item) => {
+        newPositions[item.id] = { x: item.position.x, y: maxBottom - (item.height || 200) };
+      });
+      showSuccess('Aligned to bottom');
+    } else if (type === 'center-h') {
+      const allCentersX = selectedItems.map((i) => i.position.x + (i.width || 240) / 2);
+      const avgCenterX = allCentersX.reduce((a, b) => a + b, 0) / allCentersX.length;
+      selectedItems.forEach((item) => {
+        newPositions[item.id] = { x: avgCenterX - (item.width || 240) / 2, y: item.position.y };
+      });
+      showSuccess('Aligned to center horizontally');
+    } else if (type === 'center-v') {
+      const allCentersY = selectedItems.map((i) => i.position.y + (i.height || 200) / 2);
+      const avgCenterY = allCentersY.reduce((a, b) => a + b, 0) / allCentersY.length;
+      selectedItems.forEach((item) => {
+        newPositions[item.id] = { x: item.position.x, y: avgCenterY - (item.height || 200) / 2 };
+      });
+      showSuccess('Aligned to center vertically');
+    }
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        newPositions[item.id] ? { ...item, position: newPositions[item.id] } : item
+      ),
+    }));
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  // Layer Management: Z-index control for drawings
+  const handleBringToFront = useCallback(() => {
+    if (selectedIds.length === 0) return;
+
+    pushHistory();
+    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
+    if (selectedDrawings.length === 0) {
+      showError('Select at least one drawing to bring to front');
+      return;
+    }
+
+    const maxZ = Math.max(...items.filter(i => i.type === ItemType.DRAWING).map((i) => i.zIndex || 0), 0);
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
+          ? { ...item, zIndex: maxZ + 1 }
+          : item
+      ),
+    }));
+    showSuccess('Brought to front');
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  const handleSendToBack = useCallback(() => {
+    if (selectedIds.length === 0) return;
+
+    pushHistory();
+    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
+    if (selectedDrawings.length === 0) {
+      showError('Select at least one drawing to send to back');
+      return;
+    }
+
+    const minZ = Math.min(...items.filter(i => i.type === ItemType.DRAWING).map((i) => i.zIndex || 0), 0);
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
+          ? { ...item, zIndex: minZ - 1 }
+          : item
+      ),
+    }));
+    showSuccess('Sent to back');
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  const handleBringForward = useCallback(() => {
+    if (selectedIds.length === 0) return;
+
+    pushHistory();
+    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
+    if (selectedDrawings.length === 0) {
+      showError('Select at least one drawing to bring forward');
+      return;
+    }
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
+          ? { ...item, zIndex: (item.zIndex || 0) + 1 }
+          : item
+      ),
+    }));
+    showSuccess('Brought forward');
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  const handleSendBackward = useCallback(() => {
+    if (selectedIds.length === 0) return;
+
+    pushHistory();
+    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
+    if (selectedDrawings.length === 0) {
+      showError('Select at least one drawing to send backward');
+      return;
+    }
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
+          ? { ...item, zIndex: (item.zIndex || 0) - 1 }
+          : item
+      ),
+    }));
+    showSuccess('Sent backward');
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  // Drawing Grouping: Group multiple strokes together
+  const handleGroupDrawings = useCallback(() => {
+    if (selectedIds.length < 2) {
+      showError('Select at least 2 drawings to group');
+      return;
+    }
+
+    pushHistory();
+    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
+    if (selectedDrawings.length < 2) {
+      showError('Select at least 2 drawings to group');
+      return;
+    }
+
+    const groupId = crypto.randomUUID();
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
+          ? { ...item, groupId }
+          : item
+      ),
+    }));
+    showSuccess(`Grouped ${selectedDrawings.length} drawings`);
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  const handleUngroupDrawings = useCallback(() => {
+    if (selectedIds.length === 0) {
+      showError('Select grouped drawings to ungroup');
+      return;
+    }
+
+    pushHistory();
+    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING && i.groupId);
+    if (selectedDrawings.length === 0) {
+      showError('No grouped drawings selected');
+      return;
+    }
+
+    // Get all group IDs from selected drawings
+    const groupIds = new Set(selectedDrawings.map(d => d.groupId).filter(Boolean));
+
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((item) =>
+        item.type === ItemType.DRAWING && item.groupId && groupIds.has(item.groupId)
+          ? { ...item, groupId: undefined }
+          : item
+      ),
+    }));
+    showSuccess('Ungrouped drawings');
+  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
+
+  // -- Alt Key Detection for Temporary Snap Disable --
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && !isAltPressed) {
+        setIsAltPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.altKey && isAltPressed) {
+        setIsAltPressed(false);
+      }
+    };
+
+    const handleBlur = () => {
+      setIsAltPressed(false); // Reset when window loses focus
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [isAltPressed]);
+
   // -- Keyboard Shortcuts --
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setEditingId(null);
+        setEditingDrawingId(null);
         clearSelection();
         setIsConnectionMode(false);
         setConnectionStartId(null);
@@ -1081,6 +1701,54 @@ const App: React.FC = () => {
         if ((e.key === 'c' || e.key === 'C') && e.shiftKey) {
           e.preventDefault();
           handleAddContainer();
+        }
+
+        if ((e.key === 'g' || e.key === 'G') && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          setIsGridEnabled((prev) => !prev);
+          showSuccess(isGridEnabled ? 'Grid disabled' : 'Grid enabled');
+        }
+
+        if ((e.key === 'h' || e.key === 'H') && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          handleDistribute('horizontal');
+        }
+
+        if ((e.key === 'v' || e.key === 'V') && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          handleDistribute('vertical');
+        }
+
+        // Layer Management
+        if (e.key === ']' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          handleBringToFront();
+        }
+
+        if (e.key === '[' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          handleSendToBack();
+        }
+
+        if (e.key === ']' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          handleBringForward();
+        }
+
+        if (e.key === '[' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          handleSendBackward();
+        }
+
+        // Drawing Grouping
+        if ((e.key === 'g' || e.key === 'G') && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+          e.preventDefault();
+          handleGroupDrawings();
+        }
+
+        if ((e.key === 'g' || e.key === 'G') && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+          e.preventDefault();
+          handleUngroupDrawings();
         }
 
         if (e.key === 'Enter') {
@@ -1131,6 +1799,12 @@ const App: React.FC = () => {
     undo,
     redo,
     pushHistory,
+    handleBringToFront,
+    handleSendToBack,
+    handleBringForward,
+    handleSendBackward,
+    handleGroupDrawings,
+    handleUngroupDrawings,
   ]);
 
   // -- AI Logic --
@@ -1171,6 +1845,10 @@ const App: React.FC = () => {
   const handleItemMouseDown = useCallback((e: React.MouseEvent, id: string) => {
     if (isConnectionMode) return;
     e.stopPropagation();
+
+    // Check if the item is locked
+    const item = items.find((i) => i.id === id);
+    if (item?.locked) return;
 
     // Selection Logic in Hook
     if (e.shiftKey) {
@@ -1254,7 +1932,9 @@ const App: React.FC = () => {
       if (rect) {
         const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
         const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
-        setCurrentDrawing([{ x, y }]);
+        // Capture pressure if available (from stylus/tablet)
+        const pressure = (e.nativeEvent as PointerEvent).pressure || 0.5;
+        setCurrentDrawing([{ x, y, pressure }]);
       }
       return;
     }
@@ -1351,12 +2031,69 @@ const App: React.FC = () => {
         return;
       }
 
+      // Point editing mode: drag individual points
+      if (draggingPointIndex !== null && editingDrawingId) {
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (rect) {
+          const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
+          const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+
+          updateBoard(currentBoardId, (board) => ({
+            ...board,
+            items: board.items.map((item) =>
+              item.id === editingDrawingId && item.points
+                ? {
+                    ...item,
+                    points: item.points.map((p, i) =>
+                      i === draggingPointIndex ? { x, y } : p
+                    ),
+                  }
+                : item
+            ),
+          }));
+        }
+        return;
+      }
+
       if (isDrawingMode && currentDrawing.length > 0) {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (rect) {
           const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
           const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
-          setCurrentDrawing((prev) => [...prev, { x, y }]);
+
+          if (isEraserMode) {
+            // Eraser mode: check for intersections with existing drawings
+            const eraserRadius = 10; // pixels
+            const drawingsToRemove: string[] = [];
+
+            items.forEach((item) => {
+              if (item.type === ItemType.DRAWING && item.points) {
+                // Check if any point in the drawing is within eraser radius
+                const isIntersecting = item.points.some((point) => {
+                  const distance = Math.sqrt(
+                    Math.pow(point.x - x, 2) + Math.pow(point.y - y, 2)
+                  );
+                  return distance < eraserRadius;
+                });
+
+                if (isIntersecting) {
+                  drawingsToRemove.push(item.id);
+                }
+              }
+            });
+
+            // Remove intersected drawings
+            if (drawingsToRemove.length > 0) {
+              updateBoard(currentBoardId, (board) => ({
+                ...board,
+                items: board.items.filter((item) => !drawingsToRemove.includes(item.id)),
+              }));
+            }
+          } else {
+            // Normal drawing mode - capture pressure
+            const pressure = (e as PointerEvent).pressure || 0.5;
+            setCurrentDrawing((prev) => [...prev, { x, y, pressure }]);
+          }
         }
         return;
       }
@@ -1373,14 +2110,39 @@ const App: React.FC = () => {
           const item = items.find((i) => i.id === itemId);
           if (item && initial) {
             const rawNewPos = { x: initial.x + dx, y: initial.y + dy };
-            const snappedPos = getSnapPosition(item, rawNewPos, items, zoom);
 
-            // Adjust Delta based on Snap
-            snapDelta.x = snappedPos.x - rawNewPos.x;
-            snapDelta.y = snappedPos.y - rawNewPos.y;
+            // If Alt is pressed, disable all snapping
+            if (isAltPressed) {
+              clearGuides();
+              setCenterGuides([]);
+              setDistanceIndicators([]);
+            } else {
+              // Calculate canvas center for center guides
+              const canvasCenterX = window.innerWidth / 2 / zoom - pan.x / zoom;
+              const canvasCenterY = window.innerHeight / 2 / zoom - pan.y / zoom;
+
+              const snappedPos = getSnapPosition(item, rawNewPos, items, zoom, {
+                isGridEnabled,
+                gridSize,
+                canvasCenterX,
+                canvasCenterY,
+                onCenterGuidesChange: setCenterGuides,
+                snapSensitivity, // Pass sensitivity
+              });
+
+              // Adjust Delta based on Snap
+              snapDelta.x = snappedPos.x - rawNewPos.x;
+              snapDelta.y = snappedPos.y - rawNewPos.y;
+
+              // Calculate distance indicators
+              const indicators = calculateDistanceIndicators(item, snappedPos, items);
+              setDistanceIndicators(indicators);
+            }
           }
         } else {
           clearGuides();
+          setCenterGuides([]);
+          setDistanceIndicators([]);
 
           // Create ghost preview for multiple items
           const ghostItems = dragState.itemIds.map((id) => {
@@ -1528,6 +2290,7 @@ const App: React.FC = () => {
       clearGuides,
       isDrawingMode,
       currentDrawing,
+      isEraserMode,
     ]
   );
 
@@ -1549,6 +2312,15 @@ const App: React.FC = () => {
 
     if (isDrawingMode && currentDrawing.length > 1) {
       pushHistory();
+
+      // Generate final points based on selected shape
+      let finalPoints = currentDrawing;
+      if (drawingShape !== 'freehand' && currentDrawing.length >= 2) {
+        const start = currentDrawing[0];
+        const end = currentDrawing[currentDrawing.length - 1];
+        finalPoints = generateShapePoints(start, end, drawingShape as any);
+      }
+
       updateBoard(currentBoardId, (board) => ({
         ...board,
         items: [
@@ -1556,19 +2328,35 @@ const App: React.FC = () => {
           {
             id: crypto.randomUUID(),
             type: ItemType.DRAWING,
-            position: currentDrawing[0], // Anchor position
-            points: currentDrawing,
+            position: finalPoints[0], // Anchor position
+            points: finalPoints,
             content: '', // Not used for drawing
-            strokeColor: isDarkMode ? '#E5E7EB' : '#374151',
+            strokeColor: drawingStrokeColor,
+            width: drawingStrokeWidth,
+            zIndex: 0, // Default layer
+            style: {
+              fontSize: 'md',
+              fontWeight: 'normal',
+              textAlign: drawingStrokeType as any, // Reusing textAlign to store stroke type
+            },
           },
         ],
       }));
     }
     setCurrentDrawing([]);
 
+    // Reset point dragging
+    if (draggingPointIndex !== null) {
+      pushHistory();
+      setDraggingPointIndex(null);
+      setPointDragStart(null);
+      return;
+    }
 
     if (dragState.isDragging) {
       clearGuides();
+      setCenterGuides([]);
+      setDistanceIndicators([]);
     }
 
     if (dragState.isDragging && dragOverBoardId) {
@@ -1615,7 +2403,10 @@ const App: React.FC = () => {
     pushHistory,
     updateBoard,
     currentBoardId,
-    isDarkMode,
+    drawingStrokeColor,
+    drawingStrokeWidth,
+    drawingStrokeType,
+    drawingShape,
   ]);
 
   useEffect(() => {
@@ -1838,28 +2629,74 @@ const App: React.FC = () => {
 
   // -- Render Helpers --
 
-  // SVG path smoothing function
+  // SVG path smoothing function using Catmull-Rom splines
   const getSvgPathFromPoints = (points: Position[]): string => {
     if (points.length < 2) return '';
-    
+    if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+
     let path = `M ${points[0].x} ${points[0].y}`;
-    
-    for (let i = 1; i < points.length - 1; i++) {
-      const p0 = points[i - 1];
+
+    // Catmull-Rom to Bezier conversion
+    // The tension parameter (0.5 = centripetal Catmull-Rom)
+    const tension = 0.5;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = i > 0 ? points[i - 1] : points[i];
       const p1 = points[i];
       const p2 = points[i + 1];
+      const p3 = i + 2 < points.length ? points[i + 2] : p2;
 
-      const cp1_x = (p0.x + p1.x) / 2;
-      const cp1_y = (p0.y + p1.y) / 2;
-      const cp2_x = (p1.x + p2.x) / 2;
-      const cp2_y = (p1.y + p2.y) / 2;
-      
-      path += ` Q ${p1.x}, ${p1.y}, ${cp2_x}, ${cp2_y}`;
+      // Calculate control points for cubic Bezier
+      const cp1x = p1.x + (p2.x - p0.x) / 6 * tension;
+      const cp1y = p1.y + (p2.y - p0.y) / 6 * tension;
+      const cp2x = p2.x - (p3.x - p1.x) / 6 * tension;
+      const cp2y = p2.y - (p3.y - p1.y) / 6 * tension;
+
+      path += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
     }
-    
-    path += ` L ${points[points.length-1].x} ${points[points.length-1].y}`;
-    
+
     return path;
+  };
+
+  // Helper to check if drawing has pressure data
+  const hasPressureData = (points: Position[]): boolean => {
+    return points.some(p => p.pressure !== undefined && p.pressure !== 0.5);
+  };
+
+  // Render pressure-sensitive path as multiple segments
+  const renderPressureSensitivePath = (
+    points: Position[],
+    baseWidth: number,
+    color: string,
+    dashArray: string,
+    opacity: number = 1
+  ) => {
+    if (points.length < 2) return null;
+
+    return points.slice(0, -1).map((point, i) => {
+      const nextPoint = points[i + 1];
+      const pressure = point.pressure || 0.5;
+      const nextPressure = nextPoint.pressure || 0.5;
+      const avgPressure = (pressure + nextPressure) / 2;
+
+      // Vary stroke width based on pressure (0.3x to 1.5x base width)
+      const strokeWidth = baseWidth * (0.3 + avgPressure * 1.2);
+
+      return (
+        <line
+          key={`segment-${i}`}
+          x1={point.x}
+          y1={point.y}
+          x2={nextPoint.x}
+          y2={nextPoint.y}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={dashArray}
+          strokeLinecap="round"
+          opacity={opacity}
+        />
+      );
+    });
   };
 
 
@@ -1963,6 +2800,245 @@ const App: React.FC = () => {
           label: 'Toggle Dark Mode',
           icon: isDarkMode ? <Sun /> : <Moon />,
           action: () => setIsDarkMode(!isDarkMode),
+        },
+      ],
+    },
+    {
+      heading: 'Grid & Alignment',
+      items: [
+        {
+          id: 'toggle-grid',
+          label: isGridEnabled ? 'Disable Snap to Grid' : 'Enable Snap to Grid',
+          icon: <Grid3x3 />,
+          action: () => setIsGridEnabled(!isGridEnabled),
+          shortcut: 'G',
+        },
+        {
+          id: 'grid-size-10',
+          label: 'Grid Size: 10px',
+          icon: <Grid3x3 />,
+          action: () => {
+            setGridSize(10);
+            setIsGridEnabled(true);
+            showSuccess('Grid size set to 10px');
+          },
+        },
+        {
+          id: 'grid-size-20',
+          label: 'Grid Size: 20px',
+          icon: <Grid3x3 />,
+          action: () => {
+            setGridSize(20);
+            setIsGridEnabled(true);
+            showSuccess('Grid size set to 20px');
+          },
+        },
+        {
+          id: 'grid-size-50',
+          label: 'Grid Size: 50px',
+          icon: <Grid3x3 />,
+          action: () => {
+            setGridSize(50);
+            setIsGridEnabled(true);
+            showSuccess('Grid size set to 50px');
+          },
+        },
+        {
+          id: 'distribute-horizontal',
+          label: 'Distribute Horizontally',
+          icon: <AlignHorizontalSpaceAround />,
+          action: () => handleDistribute('horizontal'),
+          shortcut: 'Shift+H',
+        },
+        {
+          id: 'distribute-vertical',
+          label: 'Distribute Vertically',
+          icon: <AlignVerticalSpaceAround />,
+          action: () => handleDistribute('vertical'),
+          shortcut: 'Shift+V',
+        },
+        {
+          id: 'align-left',
+          label: 'Align Left',
+          icon: <AlignStartVertical />,
+          action: () => handleAlign('left'),
+        },
+        {
+          id: 'align-right',
+          label: 'Align Right',
+          icon: <AlignEndVertical />,
+          action: () => handleAlign('right'),
+        },
+        {
+          id: 'align-top',
+          label: 'Align Top',
+          icon: <AlignStartHorizontal />,
+          action: () => handleAlign('top'),
+        },
+        {
+          id: 'align-bottom',
+          label: 'Align Bottom',
+          icon: <AlignEndHorizontal />,
+          action: () => handleAlign('bottom'),
+        },
+        {
+          id: 'align-center-h',
+          label: 'Align Center Horizontally',
+          icon: <AlignCenterHorizontal />,
+          action: () => handleAlign('center-h'),
+        },
+        {
+          id: 'align-center-v',
+          label: 'Align Center Vertically',
+          icon: <AlignCenterVertical />,
+          action: () => handleAlign('center-v'),
+        },
+      ],
+    },
+    {
+      heading: 'Layer Management',
+      items: [
+        {
+          id: 'bring-to-front',
+          label: 'Bring to Front',
+          icon: <ChevronsUp />,
+          action: () => handleBringToFront(),
+          shortcut: 'Ctrl+]',
+        },
+        {
+          id: 'send-to-back',
+          label: 'Send to Back',
+          icon: <ChevronsDown />,
+          action: () => handleSendToBack(),
+          shortcut: 'Ctrl+[',
+        },
+        {
+          id: 'bring-forward',
+          label: 'Bring Forward',
+          icon: <MoveUp />,
+          action: () => handleBringForward(),
+          shortcut: ']',
+        },
+        {
+          id: 'send-backward',
+          label: 'Send Backward',
+          icon: <MoveDown />,
+          action: () => handleSendBackward(),
+          shortcut: '[',
+        },
+      ],
+    },
+    {
+      heading: 'Drawing Groups',
+      items: [
+        {
+          id: 'group-drawings',
+          label: 'Group Drawings',
+          icon: <Group />,
+          action: () => handleGroupDrawings(),
+          shortcut: 'Ctrl+G',
+        },
+        {
+          id: 'ungroup-drawings',
+          label: 'Ungroup Drawings',
+          icon: <Ungroup />,
+          action: () => handleUngroupDrawings(),
+          shortcut: 'Ctrl+Shift+G',
+        },
+      ],
+    },
+    {
+      heading: 'Snap Settings',
+      items: [
+        {
+          id: 'snap-sensitivity-5',
+          label: `Snap Sensitivity: 5px ${snapSensitivity === 5 ? '✓' : ''}`,
+          icon: <Sliders />,
+          action: () => {
+            setSnapSensitivity(5);
+            showSuccess('Snap sensitivity: 5px (precise)');
+          },
+        },
+        {
+          id: 'snap-sensitivity-10',
+          label: `Snap Sensitivity: 10px ${snapSensitivity === 10 ? '✓' : ''}`,
+          icon: <Sliders />,
+          action: () => {
+            setSnapSensitivity(10);
+            showSuccess('Snap sensitivity: 10px (balanced)');
+          },
+        },
+        {
+          id: 'snap-sensitivity-20',
+          label: `Snap Sensitivity: 20px ${snapSensitivity === 20 ? '✓' : ''}`,
+          icon: <Sliders />,
+          action: () => {
+            setSnapSensitivity(20);
+            showSuccess('Snap sensitivity: 20px (relaxed)');
+          },
+        },
+        {
+          id: 'guide-color-blue',
+          label: `Guide Color: Blue ${guideColor === '#3B82F6' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setGuideColor('#3B82F6');
+            showSuccess('Guide color set to blue');
+          },
+        },
+        {
+          id: 'guide-color-purple',
+          label: `Guide Color: Purple ${guideColor === '#A855F7' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setGuideColor('#A855F7');
+            showSuccess('Guide color set to purple');
+          },
+        },
+        {
+          id: 'guide-color-pink',
+          label: `Guide Color: Pink ${guideColor === '#EC4899' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setGuideColor('#EC4899');
+            showSuccess('Guide color set to pink');
+          },
+        },
+        {
+          id: 'center-guide-color-green',
+          label: `Center Guide: Green ${centerGuideColor === '#10B981' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setCenterGuideColor('#10B981');
+            showSuccess('Center guide color: green');
+          },
+        },
+        {
+          id: 'center-guide-color-cyan',
+          label: `Center Guide: Cyan ${centerGuideColor === '#06B6D4' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setCenterGuideColor('#06B6D4');
+            showSuccess('Center guide color: cyan');
+          },
+        },
+        {
+          id: 'distance-color-orange',
+          label: `Distance Indicator: Orange ${distanceIndicatorColor === '#F59E0B' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setDistanceIndicatorColor('#F59E0B');
+            showSuccess('Distance color: orange');
+          },
+        },
+        {
+          id: 'distance-color-red',
+          label: `Distance Indicator: Red ${distanceIndicatorColor === '#EF4444' ? '✓' : ''}`,
+          icon: <Palette />,
+          action: () => {
+            setDistanceIndicatorColor('#EF4444');
+            showSuccess('Distance color: red');
+          },
         },
       ],
     },
@@ -2132,6 +3208,13 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* Point Editing Mode Indicator */}
+      {editingDrawingId && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-purple-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium animate-in fade-in slide-in-from-top-4">
+          Editing points - Drag to move • Press Esc to exit
+        </div>
+      )}
+
       {/* Infinite Canvas */}
       <div
         id="canvas-area"
@@ -2144,34 +3227,175 @@ const App: React.FC = () => {
         }}
       >
         {/* Drawings & Connections Layer */}
-        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible z-0">
+        <svg className="absolute top-0 left-0 w-full h-full overflow-visible z-0" style={{ pointerEvents: 'none' }}>
           {/* Render existing drawings */}
-          {items.map((item) => {
-            if (item.type === ItemType.DRAWING && item.points) {
+          {items
+            .filter((item) => item.type === ItemType.DRAWING && item.points)
+            .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)) // Sort by zIndex
+            .map((item) => {
+              const strokeWidth = item.width || 4;
+              const strokeType = (item.style?.textAlign as any) || 'solid';
+              const dashArray =
+                strokeType === 'dashed' ? `${strokeWidth * 3} ${strokeWidth * 2}` :
+                strokeType === 'dotted' ? `${strokeWidth} ${strokeWidth}` :
+                'none';
+
+              const isSelected = selectedIds.includes(item.id);
+
+              const isEditing = editingDrawingId === item.id;
+
               return (
-                <path
+                <g
                   key={item.id}
-                  d={getSvgPathFromPoints(item.points)}
-                  stroke={item.strokeColor || (isDarkMode ? '#E5E7EB' : '#374151')}
-                  strokeWidth="4"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey) {
+                      // Multi-select with Shift
+                      setSelectedIds((prev) =>
+                        prev.includes(item.id)
+                          ? prev.filter((id) => id !== item.id)
+                          : [...prev, item.id]
+                      );
+                    } else {
+                      // If item is in a group, select all items in the group
+                      if (item.groupId) {
+                        const groupItems = items.filter(
+                          (i) => i.type === ItemType.DRAWING && i.groupId === item.groupId
+                        );
+                        setSelectedIds(groupItems.map(i => i.id));
+                      } else {
+                        setSelectedIds([item.id]);
+                      }
+                    }
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingDrawingId(item.id);
+                    setSelectedIds([item.id]);
+                  }}
+                >
+                  {/* Main drawing path - use pressure-sensitive rendering if available */}
+                  {hasPressureData(item.points!) ? (
+                    renderPressureSensitivePath(
+                      item.points!,
+                      strokeWidth,
+                      item.strokeColor || (isDarkMode ? '#E5E7EB' : '#374151'),
+                      dashArray,
+                      isSelected ? 0.7 : 1
+                    )
+                  ) : (
+                    <path
+                      d={getSvgPathFromPoints(item.points!)}
+                      stroke={item.strokeColor || (isDarkMode ? '#E5E7EB' : '#374151')}
+                      strokeWidth={strokeWidth}
+                      strokeDasharray={dashArray}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={isSelected ? 0.7 : 1}
+                    />
+                  )}
+                  {/* Selection highlight */}
+                  {isSelected && !isEditing && (
+                    <path
+                      d={getSvgPathFromPoints(item.points!)}
+                      stroke="#3B82F6"
+                      strokeWidth={strokeWidth + 4}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.3}
+                      pointerEvents="none"
+                    />
+                  )}
+                  {/* Group indicator - subtle outline */}
+                  {item.groupId && !isSelected && (
+                    <path
+                      d={getSvgPathFromPoints(item.points!)}
+                      stroke="#10B981"
+                      strokeWidth={strokeWidth + 2}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.15}
+                      pointerEvents="none"
+                    />
+                  )}
+                  {/* Editable Points */}
+                  {isEditing && item.points!.map((point, index) => (
+                    <circle
+                      key={`point-${index}`}
+                      cx={point.x}
+                      cy={point.y}
+                      r={6}
+                      fill="#3B82F6"
+                      stroke="white"
+                      strokeWidth={2}
+                      style={{ cursor: 'move' }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setDraggingPointIndex(index);
+                        setPointDragStart(point);
+                      }}
+                    />
+                  ))}
+                </g>
               );
-            }
-            return null;
-          })}
+            })}
 
           {/* Render current drawing in real-time */}
-          {currentDrawing.length > 1 && (
-            <path
-              d={getSvgPathFromPoints(currentDrawing)}
-              stroke={isDarkMode ? '#60A5FA' : '#3B82F6'} // A different color for live drawing
-              strokeWidth="4"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {currentDrawing.length > 1 && !isEraserMode && (() => {
+            // Generate preview points based on shape
+            let previewPoints = currentDrawing;
+            if (drawingShape !== 'freehand' && currentDrawing.length >= 2) {
+              const start = currentDrawing[0];
+              const end = currentDrawing[currentDrawing.length - 1];
+              previewPoints = generateShapePoints(start, end, drawingShape as any);
+            }
+
+            const dashArray =
+              drawingStrokeType === 'dashed' ? `${drawingStrokeWidth * 3} ${drawingStrokeWidth * 2}` :
+              drawingStrokeType === 'dotted' ? `${drawingStrokeWidth} ${drawingStrokeWidth}` :
+              'none';
+
+            // Use pressure-sensitive rendering for freehand with pressure data
+            if (drawingShape === 'freehand' && hasPressureData(previewPoints)) {
+              return (
+                <>
+                  {renderPressureSensitivePath(
+                    previewPoints,
+                    drawingStrokeWidth,
+                    drawingStrokeColor,
+                    dashArray
+                  )}
+                </>
+              );
+            }
+
+            return (
+              <path
+                d={getSvgPathFromPoints(previewPoints)}
+                stroke={drawingStrokeColor}
+                strokeWidth={drawingStrokeWidth}
+                strokeDasharray={dashArray}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })()}
+
+          {/* Render eraser cursor */}
+          {isEraserMode && currentDrawing.length > 0 && (
+            <circle
+              cx={currentDrawing[currentDrawing.length - 1].x}
+              cy={currentDrawing[currentDrawing.length - 1].y}
+              r={10}
+              stroke="#EF4444"
+              strokeWidth={2}
+              fill="rgba(239, 68, 68, 0.1)"
+              strokeDasharray="4 4"
             />
           )}
 
@@ -2319,6 +3543,24 @@ const App: React.FC = () => {
           })}
         </svg>
 
+        {/* Grid Pattern Layer */}
+        {isGridEnabled && (
+          <svg className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible z-10">
+            <defs>
+              <pattern
+                id="grid"
+                width={gridSize}
+                height={gridSize}
+                patternUnits="userSpaceOnUse"
+                patternTransform={`translate(${pan.x % (gridSize * zoom)}, ${pan.y % (gridSize * zoom)}) scale(${zoom})`}
+              >
+                <circle cx={0} cy={0} r={1} fill="#94A3B8" opacity={0.3} />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+        )}
+
         {/* Smart Guides Layer */}
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible z-50">
           {guides.map((g, i) => (
@@ -2328,11 +3570,88 @@ const App: React.FC = () => {
               y1={g.type === 'vertical' ? g.start : g.pos}
               x2={g.type === 'vertical' ? g.pos : g.end}
               y2={g.type === 'vertical' ? g.end : g.pos}
-              stroke="#3B82F6"
+              stroke={guideColor}
               strokeWidth="1"
               strokeDasharray="4 2"
             />
           ))}
+        </svg>
+
+        {/* Center Guides Layer */}
+        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible z-50">
+          {centerGuides.map((g, i) => {
+            const canvasWidth = window.innerWidth / zoom;
+            const canvasHeight = window.innerHeight / zoom;
+            const startX = -pan.x / zoom;
+            const startY = -pan.y / zoom;
+
+            return (
+              <line
+                key={`center-${i}`}
+                x1={g.type === 'vertical' ? g.position : startX}
+                y1={g.type === 'vertical' ? startY : g.position}
+                x2={g.type === 'vertical' ? g.position : startX + canvasWidth}
+                y2={g.type === 'vertical' ? startY + canvasHeight : g.position}
+                stroke={centerGuideColor}
+                strokeWidth="2"
+                strokeDasharray="8 4"
+                opacity="0.7"
+              />
+            );
+          })}
+        </svg>
+
+        {/* Distance Indicators Layer */}
+        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible z-50">
+          {distanceIndicators.map((indicator, i) => {
+            const midX = (indicator.from.x + indicator.to.x) / 2;
+            const midY = (indicator.from.y + indicator.to.y) / 2;
+
+            return (
+              <g key={`distance-${i}`}>
+                {/* Line */}
+                <line
+                  x1={indicator.from.x}
+                  y1={indicator.from.y}
+                  x2={indicator.to.x}
+                  y2={indicator.to.y}
+                  stroke={distanceIndicatorColor}
+                  strokeWidth="1.5"
+                  strokeDasharray="2 2"
+                />
+                {/* End caps */}
+                <line
+                  x1={indicator.orientation === 'horizontal' ? indicator.from.x : indicator.from.x - 5}
+                  y1={indicator.orientation === 'horizontal' ? indicator.from.y - 5 : indicator.from.y}
+                  x2={indicator.orientation === 'horizontal' ? indicator.from.x : indicator.from.x + 5}
+                  y2={indicator.orientation === 'horizontal' ? indicator.from.y + 5 : indicator.from.y}
+                  stroke={distanceIndicatorColor}
+                  strokeWidth="1.5"
+                />
+                <line
+                  x1={indicator.orientation === 'horizontal' ? indicator.to.x : indicator.to.x - 5}
+                  y1={indicator.orientation === 'horizontal' ? indicator.to.y - 5 : indicator.to.y}
+                  x2={indicator.orientation === 'horizontal' ? indicator.to.x : indicator.to.x + 5}
+                  y2={indicator.orientation === 'horizontal' ? indicator.to.y + 5 : indicator.to.y}
+                  stroke={distanceIndicatorColor}
+                  strokeWidth="1.5"
+                />
+                {/* Distance label */}
+                <text
+                  x={midX}
+                  y={midY - (indicator.orientation === 'horizontal' ? 8 : 0)}
+                  fontSize="11"
+                  fontWeight="600"
+                  fill={distanceIndicatorColor}
+                  textAnchor="middle"
+                  className="select-none"
+                  style={{ textShadow: '0 0 3px white, 0 0 3px white' }}
+                >
+                  {indicator.distance}px
+                </text>
+              </g>
+            );
+          })}
         </svg>
 
         {/* Ghost Placeholder (Kanban) */}
@@ -2414,6 +3733,9 @@ const App: React.FC = () => {
                 onResize={handleResize}
                 onResizeStart={pushHistory}
                 onEdit={(id) => setEditingId(id)}
+                onContainerPropertyChange={handleContainerPropertyChange}
+                onToggleLockContainer={handleToggleLockContainer}
+                onExportContainer={handleExportContainer}
                 zoom={zoom}
               />
             </React.Fragment>
@@ -2453,6 +3775,153 @@ const App: React.FC = () => {
           <Cable size={18} />
           <span className="text-sm font-medium">Lasso Selection Mode</span>
           <span className="text-xs bg-purple-700 px-2 py-0.5 rounded">Press L or ESC to exit</span>
+        </div>
+      )}
+
+      {/* Drawing Tools Panel */}
+      {isDrawingMode && (
+        <div className="fixed left-4 bottom-6 bg-white dark:bg-gray-800 px-4 py-3 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-50 animate-in slide-in-from-left">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+              <Palette size={18} className="text-blue-600 dark:text-blue-400" />
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Drawing Tools</span>
+            </div>
+
+            {/* Color Palette */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Color</label>
+              <div className="flex gap-1.5 flex-wrap max-w-[240px]">
+                {[
+                  { name: 'Blue', value: '#3B82F6' },
+                  { name: 'Red', value: '#EF4444' },
+                  { name: 'Green', value: '#10B981' },
+                  { name: 'Yellow', value: '#F59E0B' },
+                  { name: 'Purple', value: '#8B5CF6' },
+                  { name: 'Pink', value: '#EC4899' },
+                  { name: 'Gray', value: '#6B7280' },
+                  { name: 'Black', value: '#000000' },
+                ].map((color) => (
+                  <button
+                    key={color.value}
+                    onClick={() => setDrawingStrokeColor(color.value)}
+                    className={`w-8 h-8 rounded-lg border-2 transition-all ${
+                      drawingStrokeColor === color.value
+                        ? 'border-blue-500 dark:border-blue-400 scale-110 shadow-md'
+                        : 'border-gray-300 dark:border-gray-600 hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: color.value }}
+                    title={color.name}
+                    aria-label={`Select ${color.name}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Stroke Width */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Width</label>
+              <div className="flex gap-2">
+                {[
+                  { label: 'Thin', value: 2 },
+                  { label: 'Medium', value: 4 },
+                  { label: 'Thick', value: 8 },
+                ].map((width) => (
+                  <button
+                    key={width.value}
+                    onClick={() => setDrawingStrokeWidth(width.value)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      drawingStrokeWidth === width.value
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                    aria-label={`${width.label} stroke width`}
+                  >
+                    {width.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Stroke Type */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Style</label>
+              <div className="flex gap-2">
+                {[
+                  { label: 'Solid', value: 'solid' as const },
+                  { label: 'Dashed', value: 'dashed' as const },
+                  { label: 'Dotted', value: 'dotted' as const },
+                ].map((type) => (
+                  <button
+                    key={type.value}
+                    onClick={() => setDrawingStrokeType(type.value)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      drawingStrokeType === type.value
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                    aria-label={`${type.label} stroke style`}
+                  >
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Shape Tool */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Shape</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Freehand', value: 'freehand' as const, icon: <PenLine size={16} /> },
+                  { label: 'Line', value: 'line' as const, icon: <Minus size={16} /> },
+                  { label: 'Rectangle', value: 'rectangle' as const, icon: <Square size={16} /> },
+                  { label: 'Circle', value: 'circle' as const, icon: <Circle size={16} /> },
+                  { label: 'Arrow', value: 'arrow' as const, icon: <ArrowRight size={16} /> },
+                ].map((shape) => (
+                  <button
+                    key={shape.value}
+                    onClick={() => {
+                      setDrawingShape(shape.value);
+                      setIsEraserMode(false);
+                    }}
+                    className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      drawingShape === shape.value && !isEraserMode
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                    aria-label={`Draw ${shape.label}`}
+                    title={shape.label}
+                  >
+                    {shape.icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Eraser Toggle */}
+            <div className="flex flex-col gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setIsEraserMode(!isEraserMode)}
+                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  isEraserMode
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+                aria-label="Toggle Eraser Mode"
+              >
+                <Eraser size={18} />
+                <span>{isEraserMode ? 'Eraser Active' : 'Eraser'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snap Disabled Indicator (Alt Pressed) */}
+      {isAltPressed && (
+        <div className="fixed left-4 top-32 bg-amber-600 dark:bg-amber-700 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-in slide-in-from-left">
+          <Settings size={18} />
+          <span className="text-sm font-medium">Snap Disabled (Alt)</span>
         </div>
       )}
 
