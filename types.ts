@@ -62,6 +62,8 @@ export interface BoardItem {
   borderStyle?: 'solid' | 'dashed' | 'rounded'; // Border style
   autoResize?: boolean; // Auto-expand when adding items
   autoLayout?: 'none' | 'grid' | 'list' | 'masonry'; // Auto-layout mode
+  layoutMode?: 'free' | 'grid' | 'list'; // Smart Frames layout mode (default: 'free')
+  gap?: number; // Gap between items in smart layout (default: 10)
   sortBy?: 'type' | 'date' | 'size' | 'none'; // Sort contents
   filterType?: ItemType | 'all'; // Filter view by type
   pinnedItems?: string[]; // IDs of pinned items

@@ -19,6 +19,7 @@ import {
 import { generateIdeas } from './services/geminiService';
 import { fetchLinkMetadata } from './services/linkPreview';
 import { extractPaletteFromImage } from './services/colorUtils';
+import { findContainerForItem, reflowContainer } from './utils/containerReflow';
 import {
   Loader2,
   Check,
@@ -1156,10 +1157,26 @@ const App: React.FC = () => {
 
   const handleContainerPropertyChange = useCallback((id: string, property: Partial<BoardItem>) => {
     pushHistory();
-    updateBoard(currentBoardId, (board) => ({
-      ...board,
-      items: board.items.map((i) => (i.id === id ? { ...i, ...property } : i)),
-    }));
+
+    // Check if we're changing layout mode
+    const shouldReflow = property.layoutMode !== undefined;
+
+    updateBoard(currentBoardId, (board) => {
+      let updatedItems = board.items.map((i) => (i.id === id ? { ...i, ...property } : i));
+
+      // Trigger reflow if layout mode changed
+      if (shouldReflow) {
+        const container = updatedItems.find((i) => i.id === id);
+        if (container && container.layoutMode && container.layoutMode !== 'free') {
+          updatedItems = reflowContainer(container, updatedItems);
+        }
+      }
+
+      return {
+        ...board,
+        items: updatedItems,
+      };
+    });
   }, [pushHistory, currentBoardId, updateBoard]);
 
   const handleToggleLockContainer = useCallback((id: string) => {
@@ -2389,6 +2406,58 @@ const App: React.FC = () => {
       if (!hasContainer) {
         dragState.itemIds.forEach((itemId) => {
           handleKanbanSnap(itemId, dragOverKanbanId);
+        });
+      }
+    }
+
+    // Smart Frames: Reflow containers after drag
+    if (dragState.isDragging && dragState.itemIds.length > 0) {
+      // Check if any dragged item was dropped into a smart container
+      let needsReflow = false;
+      const affectedContainerIds = new Set<string>();
+
+      dragState.itemIds.forEach((itemId) => {
+        const item = items.find((i) => i.id === itemId);
+        if (item) {
+          const container = findContainerForItem(item, items);
+          if (container && container.layoutMode && container.layoutMode !== 'free') {
+            affectedContainerIds.add(container.id);
+            needsReflow = true;
+          }
+        }
+      });
+
+      // Also check if we moved items OUT of a smart container
+      Object.entries(dragState.initialPositions).forEach(([itemId, initialPos]) => {
+        const item = items.find((i) => i.id === itemId);
+        if (item) {
+          // Create a temporary item with old position to check old container
+          const tempItem = { ...item, position: initialPos };
+          const oldContainer = findContainerForItem(tempItem, items);
+          if (oldContainer && oldContainer.layoutMode && oldContainer.layoutMode !== 'free') {
+            affectedContainerIds.add(oldContainer.id);
+            needsReflow = true;
+          }
+        }
+      });
+
+      if (needsReflow) {
+        pushHistory();
+        updateBoard(currentBoardId, (board) => {
+          let updatedItems = [...board.items];
+
+          // Reflow each affected container
+          affectedContainerIds.forEach((containerId) => {
+            const container = updatedItems.find((i) => i.id === containerId);
+            if (container) {
+              updatedItems = reflowContainer(container, updatedItems);
+            }
+          });
+
+          return {
+            ...board,
+            items: updatedItems,
+          };
         });
       }
     }

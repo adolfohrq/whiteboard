@@ -12,6 +12,9 @@ import {
   Filter,
   Copy,
   Download,
+  LayoutGrid,
+  LayoutList,
+  Move,
 } from 'lucide-react';
 
 interface ContainerSettingsProps {
@@ -133,6 +136,68 @@ export const ContainerSettings: React.FC<ContainerSettingsProps> = ({
               )}
             </div>
           </div>
+
+          {/* Smart Frames - Layout Mode */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 block mb-1">
+              Smart Frames
+            </label>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                onClick={() => onPropertyChange(container.id, { layoutMode: 'free' })}
+                className={`flex items-center justify-center gap-1 py-1.5 px-2 text-xs rounded ${
+                  (container.layoutMode || 'free') === 'free'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                title="Free positioning"
+              >
+                <Move size={12} /> Free
+              </button>
+              <button
+                onClick={() => onPropertyChange(container.id, { layoutMode: 'list' })}
+                className={`flex items-center justify-center gap-1 py-1.5 px-2 text-xs rounded ${
+                  container.layoutMode === 'list'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                title="Vertical list layout"
+              >
+                <LayoutList size={12} /> List
+              </button>
+              <button
+                onClick={() => onPropertyChange(container.id, { layoutMode: 'grid' })}
+                className={`flex items-center justify-center gap-1 py-1.5 px-2 text-xs rounded ${
+                  container.layoutMode === 'grid'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                title="Grid layout with wrapping"
+              >
+                <LayoutGrid size={12} /> Grid
+              </button>
+            </div>
+          </div>
+
+          {/* Gap Control - Only visible when layout mode is active */}
+          {container.layoutMode && container.layoutMode !== 'free' && (
+            <div>
+              <label className="text-xs font-semibold text-gray-700 block mb-1">
+                Gap between items
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="40"
+                value={container.gap || 10}
+                onChange={(e) =>
+                  onPropertyChange(container.id, { gap: parseInt(e.target.value) })
+                }
+                className="w-full"
+              />
+              <div className="text-xs text-gray-500 text-right">{container.gap || 10}px</div>
+            </div>
+          )}
 
           {/* Auto-layout */}
           <div>
