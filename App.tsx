@@ -252,6 +252,11 @@ const App: React.FC = () => {
   const [gridSize, setGridSize] = useState(20); // pixels
   const [isAltPressed, setIsAltPressed] = useState(false); // Temporary snap disable
 
+  // Keyboard Navigation State
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [isSpacePanning, setIsSpacePanning] = useState(false);
+  const [spacePanStart, setSpacePanStart] = useState<Position>({ x: 0, y: 0 });
+
   // Smart Guides Configuration
   const [snapSensitivity, setSnapSensitivity] = useState(5); // 5px, 10px, or 20px
   const [guideColor, setGuideColor] = useState('#3B82F6'); // Blue
@@ -1911,8 +1916,17 @@ const App: React.FC = () => {
   }, [isConnectionMode, selectedIds, selectItem, items]);
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
     setEditingId(null);
+
+    // Middle mouse button (button === 1) for panning
+    if (e.button === 1) {
+      e.preventDefault();
+      startPan(e);
+      return;
+    }
+
+    // Only handle left click from here on
+    if (e.button !== 0) return;
 
     if (isLassoMode) {
       e.stopPropagation();
@@ -1945,18 +1959,21 @@ const App: React.FC = () => {
       return;
     }
 
-    if (e.shiftKey) {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (rect) {
-        const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-        const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
-        startSelectionBox({ x, y });
-      }
-    } else {
+    // Space + Left Click for panning
+    if (isSpacePressed) {
       clearSelection();
       startPan(e);
+      return;
     }
-  }, [isConnectionMode, zoom, pan, startSelectionBox, clearSelection, startPan, isDrawingMode, setCurrentDrawing, isLassoMode]);
+
+    // Default behavior: Selection box (no modifier key needed)
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
+      const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+      startSelectionBox({ x, y });
+    }
+  }, [isConnectionMode, zoom, pan, startSelectionBox, clearSelection, startPan, isDrawingMode, setCurrentDrawing, isLassoMode, isSpacePressed]);
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
@@ -2461,10 +2478,6 @@ const App: React.FC = () => {
   }, [zoom, pan, setPan, setZoom]);
 
   // -- Keyboard Navigation --
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const [isSpacePanning, setIsSpacePanning] = useState(false);
-  const [spacePanStart, setSpacePanStart] = useState<Position>({ x: 0, y: 0 });
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in input/textarea
@@ -2476,7 +2489,6 @@ const App: React.FC = () => {
       if (e.code === 'Space' && !isSpacePressed) {
         e.preventDefault();
         setIsSpacePressed(true);
-        document.body.style.cursor = 'grab';
       }
 
       // Arrow keys for panning
@@ -2561,7 +2573,6 @@ const App: React.FC = () => {
       if (e.code === 'Space') {
         setIsSpacePressed(false);
         setIsSpacePanning(false);
-        document.body.style.cursor = 'default';
       }
     };
 
@@ -2581,7 +2592,6 @@ const App: React.FC = () => {
         e.preventDefault();
         setIsSpacePanning(true);
         setSpacePanStart({ x: e.clientX, y: e.clientY });
-        document.body.style.cursor = 'grabbing';
       }
     };
 
@@ -2603,7 +2613,6 @@ const App: React.FC = () => {
     const handleMouseUp = () => {
       if (isSpacePanning) {
         setIsSpacePanning(false);
-        document.body.style.cursor = isSpacePressed ? 'grab' : 'default';
       }
     };
 
@@ -2619,13 +2628,6 @@ const App: React.FC = () => {
       };
     }
   }, [isSpacePressed, isSpacePanning, spacePanStart, pan, setPan]);
-
-  // Cleanup cursor on unmount
-  useEffect(() => {
-    return () => {
-      document.body.style.cursor = 'default';
-    };
-  }, []);
 
   // -- Render Helpers --
 
@@ -3219,11 +3221,12 @@ const App: React.FC = () => {
       <div
         id="canvas-area"
         ref={canvasRef}
-        className="w-full h-full dot-grid cursor-grab active:cursor-grabbing"
+        className="w-full h-full dot-grid"
         onMouseDown={handleCanvasMouseDown}
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: '0 0',
+          cursor: isSpacePressed ? (isPanning ? 'grabbing' : 'grab') : 'default',
         }}
       >
         {/* Drawings & Connections Layer */}
