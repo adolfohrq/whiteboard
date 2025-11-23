@@ -1,0 +1,203 @@
+:root {
+  /* Brand & Accent Colors */
+  --color-primary: #4f46e5;       /* Indigo 600 */
+  --color-primary-hover: #4338ca; /* Indigo 700 */
+  --color-secondary: #ec4899;     /* Pink 500 */
+
+  /* Grayscale Palette (Cool Gray) */
+  --color-bg: #f9fafb;             /* Gray 50 */
+  --color-bg-secondary: #ffffff;
+  --color-border: #e5e7eb;         /* Gray 200 */
+  --color-text: #374151;           /* Gray 700 */
+  --color-text-secondary: #6b7280; /* Gray 500 */
+  --color-dot: #e5e7eb;            /* Gray 200 */
+
+  /* Feedback Colors */
+  --color-success: #10b981; /* Emerald 500 */
+  --color-warning: #f59e0b; /* Amber 500 */
+  --color-error: #ef4444;   /* Red 500 */
+
+  /* UI Element Specific */
+  --toolbar-bg: var(--color-bg-secondary);
+  --toolbar-border: var(--color-border);
+  --toolbar-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+}
+
+.dark {
+  /* Dark Mode Palette */
+  --color-primary: #6366f1;       /* Indigo 500 */
+  --color-primary-hover: #4f46e5; /* Indigo 600 */
+
+  --color-bg: #111827;             /* Gray 900 */
+  --color-bg-secondary: #1f2937;    /* Gray 800 */
+  --color-border: #374151;         /* Gray 700 */
+  --color-text: #d1d5db;           /* Gray 300 */
+  --color-text-secondary: #9ca3af; /* Gray 400 */
+  --color-dot: #4b5563;            /* Gray 600 */
+
+  --toolbar-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+/* Command Palette Styles */
+[cmdk-dialog-overlay] {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+}
+
+.dark [cmdk-dialog-overlay] {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+[cmdk-dialog] {
+  position: fixed;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 600px;
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--toolbar-shadow);
+  z-index: 101;
+  overflow: hidden;
+}
+
+[cmdk-input] {
+  width: 100%;
+  padding: 16px;
+  font-size: 1rem;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background-color: transparent;
+  color: var(--color-text);
+  outline: none;
+}
+
+[cmdk-list] {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+[cmdk-group-heading] {
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+[cmdk-item] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s ease;
+}
+
+[cmdk-item][aria-selected='true'] {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+[cmdk-item] svg {
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-secondary);
+}
+
+[cmdk-item][aria-selected='true'] svg {
+  color: white;
+}
+
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+/* Dot grid pattern for the canvas */
+.dot-grid {
+  background-image: radial-gradient(var(--color-dot, #e5e7eb) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Hide scrollbar for clean look */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInFromTop {
+  from { transform: translateY(-1rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideInFromBottom {
+  from { transform: translateY(1rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes zoomIn95 {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-in {
+  animation-duration: 0.2s;
+  animation-fill-mode: forwards;
+}
+
+.fade-in {
+  animation-name: fadeIn;
+}
+
+.slide-in-from-top-4 {
+  animation-name: slideInFromTop;
+}
+
+.slide-in-from-bottom-4 {
+  animation-name: slideInFromBottom;
+}
+
+.zoom-in-95 {
+  animation-name: zoomIn95;
+}
+
+.cursor-wait {
+  cursor: wait;
+}

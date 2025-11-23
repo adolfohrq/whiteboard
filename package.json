@@ -1,0 +1,58 @@
+{
+  "name": "copy-of-milaclone-v2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,css,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,css,md}\"",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@google/genai": "^1.30.0",
+    "cmdk": "^1.1.1",
+    "dompurify": "^3.3.0",
+    "html-to-image": "^1.11.13",
+    "lodash": "^4.17.21",
+    "lucide-react": "^0.469.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-markdown": "^10.1.0",
+    "zod": "^4.1.12",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/lodash": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.47.0",
+    "@typescript-eslint/parser": "^8.47.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.6.2",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{css,md}": [
+      "prettier --write"
+    ]
+  }
+}
