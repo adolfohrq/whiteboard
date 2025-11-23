@@ -474,8 +474,8 @@ const App: React.FC = () => {
   // Check if item is near canvas center and return guide data
   const getCenterGuides = (itemX: number, itemY: number, itemWidth: number, itemHeight: number) => {
     const SNAP_THRESHOLD = 10 / zoom; // Snap within 10px (adjusted for zoom)
-    const canvasCenterX = window.innerWidth / 2 / zoom - pan.x / zoom;
-    const canvasCenterY = window.innerHeight / 2 / zoom - pan.y / zoom;
+    const canvasCenterX = window.innerWidth / 2 / zoom;
+    const canvasCenterY = window.innerHeight / 2 / zoom;
 
     const itemCenterX = itemX + itemWidth / 2;
     const itemCenterY = itemY + itemHeight / 2;
@@ -1932,8 +1932,8 @@ const App: React.FC = () => {
       e.stopPropagation();
       const rect = canvasRef.current?.getBoundingClientRect();
       if (rect) {
-        const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-        const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+        const x = (e.clientX - rect.left) / zoom;
+        const y = (e.clientY - rect.top) / zoom;
         setIsDrawingLasso(true);
         setLassoPath([{ x, y }]);
       }
@@ -1944,8 +1944,8 @@ const App: React.FC = () => {
       e.stopPropagation();
       const rect = canvasRef.current?.getBoundingClientRect();
       if (rect) {
-        const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-        const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+        const x = (e.clientX - rect.left) / zoom;
+        const y = (e.clientY - rect.top) / zoom;
         // Capture pressure if available (from stylus/tablet)
         const pressure = (e.nativeEvent as PointerEvent).pressure || 0.5;
         setCurrentDrawing([{ x, y, pressure }]);
@@ -1969,8 +1969,8 @@ const App: React.FC = () => {
     // Default behavior: Selection box (no modifier key needed)
     const rect = canvasRef.current?.getBoundingClientRect();
     if (rect) {
-      const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-      const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
       startSelectionBox({ x, y });
     }
   }, [isConnectionMode, zoom, pan, startSelectionBox, clearSelection, startPan, isDrawingMode, setCurrentDrawing, isLassoMode, isSpacePressed]);
@@ -1982,8 +1982,8 @@ const App: React.FC = () => {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect) return;
 
-        const currentX = (e.clientX - rect.left) / zoom - pan.x / zoom;
-        const currentY = (e.clientY - rect.top) / zoom - pan.y / zoom;
+        const currentX = (e.clientX - rect.left) / zoom;
+        const currentY = (e.clientY - rect.top) / zoom;
         const dx = currentX - resizeStartMouse.x;
         const dy = currentY - resizeStartMouse.y;
 
@@ -2041,8 +2041,8 @@ const App: React.FC = () => {
       if (isDrawingLasso && lassoPath.length > 0) {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (rect) {
-          const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-          const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+          const x = (e.clientX - rect.left) / zoom;
+          const y = (e.clientY - rect.top) / zoom;
           setLassoPath((prev) => [...prev, { x, y }]);
         }
         return;
@@ -2052,8 +2052,8 @@ const App: React.FC = () => {
       if (draggingPointIndex !== null && editingDrawingId) {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (rect) {
-          const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-          const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+          const x = (e.clientX - rect.left) / zoom;
+          const y = (e.clientY - rect.top) / zoom;
 
           updateBoard(currentBoardId, (board) => ({
             ...board,
@@ -2075,8 +2075,8 @@ const App: React.FC = () => {
       if (isDrawingMode && currentDrawing.length > 0) {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (rect) {
-          const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-          const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+          const x = (e.clientX - rect.left) / zoom;
+          const y = (e.clientY - rect.top) / zoom;
 
           if (isEraserMode) {
             // Eraser mode: check for intersections with existing drawings
@@ -2135,8 +2135,8 @@ const App: React.FC = () => {
               setDistanceIndicators([]);
             } else {
               // Calculate canvas center for center guides
-              const canvasCenterX = window.innerWidth / 2 / zoom - pan.x / zoom;
-              const canvasCenterY = window.innerHeight / 2 / zoom - pan.y / zoom;
+              const canvasCenterX = window.innerWidth / 2 / zoom;
+              const canvasCenterY = window.innerHeight / 2 / zoom;
 
               const snappedPos = getSnapPosition(item, rawNewPos, items, zoom, {
                 isGridEnabled,
@@ -2206,8 +2206,8 @@ const App: React.FC = () => {
         let foundKanbanId: string | null = null;
         const rect = canvasRef.current?.getBoundingClientRect();
         if (rect) {
-          const worldX = (e.clientX - rect.left) / zoom - pan.x / zoom;
-          const worldY = (e.clientY - rect.top) / zoom - pan.y / zoom;
+          const worldX = (e.clientX - rect.left) / zoom;
+          const worldY = (e.clientY - rect.top) / zoom;
 
           const boardItems = items.filter(
             (i) => i.type === ItemType.BOARD && !dragState.itemIds.includes(i.id)
@@ -2260,8 +2260,8 @@ const App: React.FC = () => {
         updatePan(e);
       } else if (selectionBox && canvasRef.current) {
         const rect = canvasRef.current.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / zoom - pan.x / zoom;
-        const y = (e.clientY - rect.top) / zoom - pan.y / zoom;
+        const x = (e.clientX - rect.left) / zoom;
+        const y = (e.clientY - rect.top) / zoom;
         updateSelectionBox({ x, y });
 
         const boxLeft = Math.min(selectionBox.start.x, x);
@@ -3491,8 +3491,8 @@ const App: React.FC = () => {
                       const rect = canvasRef.current?.getBoundingClientRect();
                       if (rect) {
                         setResizeStartMouse({
-                          x: (e.clientX - rect.left) / zoom - pan.x / zoom,
-                          y: (e.clientY - rect.top) / zoom - pan.y / zoom,
+                          x: (e.clientX - rect.left) / zoom,
+                          y: (e.clientY - rect.top) / zoom,
                         });
                       }
                     }}
