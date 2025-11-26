@@ -20,6 +20,7 @@ import { generateIdeas } from './services/geminiService';
 import { fetchLinkMetadata } from './services/linkPreview';
 import { extractPaletteFromImage } from './services/colorUtils';
 import { findContainerForItem, reflowContainer } from './utils/containerReflow';
+import { getItemDimensions } from './utils/itemDimensions';
 import {
   Loader2,
   Check,
@@ -66,8 +67,12 @@ import {
   MoveDown,
   ChevronsUp,
   ChevronsDown,
+  ChevronDown,
+  ChevronUp,
   Group,
   Ungroup,
+  Undo,
+  Redo,
 } from 'lucide-react';
 import { Toaster } from './utils/toast';
 import { showError, showSuccess } from './utils/toast';
@@ -79,6 +84,7 @@ import { useCanvasControls } from './hooks/useCanvasControls';
 import { useSelection } from './hooks/useSelection';
 import { useSmartGuides } from './hooks/useSmartGuides';
 import { useDarkMode } from './hooks/useDarkMode';
+import { useMindMapOperations } from './hooks/useMindMapOperations';
 import { templates, Template } from './templates';
 
 // Store
@@ -195,6 +201,14 @@ const App: React.FC = () => {
 
   const { guides, getSnapPosition, clearGuides } = useSmartGuides();
 
+  const {
+    createRootNode,
+    addChildNode,
+    addSiblingNode,
+    handleKeyDown: handleMindMapKeyDown,
+    handleArrowNavigation,
+  } = useMindMapOperations();
+
   // -- Local UI State --
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isConnectionMode, setIsConnectionMode] = useState(false);
@@ -226,6 +240,15 @@ const App: React.FC = () => {
   const [drawingStrokeType, setDrawingStrokeType] = useState<'solid' | 'dashed' | 'dotted'>('solid');
   const [drawingShape, setDrawingShape] = useState<'freehand' | 'rectangle' | 'circle' | 'arrow' | 'line'>('freehand');
   const [isEraserMode, setIsEraserMode] = useState(false);
+
+  // Drawing Tools Panel Position (draggable)
+  const [drawingPanelPosition, setDrawingPanelPosition] = useState({
+    x: 16,
+    y: typeof window !== 'undefined' ? window.innerHeight - 400 : 100
+  });
+  const [isDraggingPanel, setIsDraggingPanel] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isDrawingPanelExpanded, setIsDrawingPanelExpanded] = useState(true);
 
   // Point Editing State
   const [editingDrawingId, setEditingDrawingId] = useState<string | null>(null);
@@ -587,7 +610,7 @@ const App: React.FC = () => {
         currentY += maxRowHeight + PADDING;
         maxRowHeight = 0;
       }
-      
+
       newItems.push({
         ...templateItem,
         id: crypto.randomUUID(),
@@ -639,6 +662,9 @@ const App: React.FC = () => {
     } else if (item.type === ItemType.SWATCH) {
       width = 80;
       height = 90;
+    } else if (item.type === ItemType.COMMENT) {
+      width = 220;
+      height = 140;
     }
 
     return { width, height };
@@ -717,6 +743,10 @@ const App: React.FC = () => {
           width = 80;
           height = 90;
         }
+        if (type === ItemType.COMMENT) {
+          width = 220;
+          height = 140;
+        }
 
         const newItem: BoardItem = {
           id,
@@ -782,6 +812,12 @@ const App: React.FC = () => {
   const handleAddContainer = () => addItem(ItemType.CONTAINER, 'New Group');
   const handleAddKanban = () => addItem(ItemType.KANBAN, 'To Do');
   const handleAddBoard = () => addItem(ItemType.BOARD, 'New Project');
+  const handleAddComment = () => addItem(ItemType.COMMENT, '');
+
+  const handleAddMindMap = useCallback(() => {
+    const center = getViewportCenter();
+    createRootNode(center);
+  }, [createRootNode, getViewportCenter]);
 
   const handleAddLink = useCallback(() => {
     const url = prompt('Paste a URL:');
@@ -1155,6 +1191,74 @@ const App: React.FC = () => {
     }));
   }, [pushHistory, selectedIds, currentBoardId, updateBoard]);
 
+  const handleBringToFront = useCallback((triggeredId?: string) => {
+    pushHistory();
+    const idsToUpdate =
+      triggeredId && selectedIds.includes(triggeredId) ? selectedIds : triggeredId ? [triggeredId] : selectedIds;
+
+    if (idsToUpdate.length === 0) return;
+
+    updateBoard(currentBoardId, (board) => {
+      const maxZIndex = Math.max(...board.items.map((i) => i.zIndex || 0), 0);
+      return {
+        ...board,
+        items: board.items.map((i) =>
+          idsToUpdate.includes(i.id) ? { ...i, zIndex: maxZIndex + 1 } : i
+        ),
+      };
+    });
+  }, [pushHistory, selectedIds, currentBoardId, updateBoard]);
+
+  const handleSendToBack = useCallback((triggeredId?: string) => {
+    pushHistory();
+    const idsToUpdate =
+      triggeredId && selectedIds.includes(triggeredId) ? selectedIds : triggeredId ? [triggeredId] : selectedIds;
+
+    if (idsToUpdate.length === 0) return;
+
+    updateBoard(currentBoardId, (board) => {
+      const minZIndex = Math.min(...board.items.map((i) => i.zIndex || 0), 0);
+      return {
+        ...board,
+        items: board.items.map((i) =>
+          idsToUpdate.includes(i.id) ? { ...i, zIndex: minZIndex - 1 } : i
+        ),
+      };
+    });
+  }, [pushHistory, selectedIds, currentBoardId, updateBoard]);
+
+  const handleIncreaseOpacity = useCallback((triggeredId: string) => {
+    const idsToUpdate =
+      triggeredId && selectedIds.includes(triggeredId) ? selectedIds : [triggeredId];
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((i) => {
+        if (idsToUpdate.includes(i.id)) {
+          const currentOpacity = i.style?.opacity || 1;
+          const newOpacity = Math.min(currentOpacity + 0.1, 1);
+          return { ...i, style: { ...i.style, opacity: newOpacity } as ItemStyle };
+        }
+        return i;
+      }),
+    }));
+  }, [selectedIds, currentBoardId, updateBoard]);
+
+  const handleDecreaseOpacity = useCallback((triggeredId: string) => {
+    const idsToUpdate =
+      triggeredId && selectedIds.includes(triggeredId) ? selectedIds : [triggeredId];
+    updateBoard(currentBoardId, (board) => ({
+      ...board,
+      items: board.items.map((i) => {
+        if (idsToUpdate.includes(i.id)) {
+          const currentOpacity = i.style?.opacity || 1;
+          const newOpacity = Math.max(currentOpacity - 0.1, 0);
+          return { ...i, style: { ...i.style, opacity: newOpacity } as ItemStyle };
+        }
+        return i;
+      }),
+    }));
+  }, [selectedIds, currentBoardId, updateBoard]);
+
   const handleContainerPropertyChange = useCallback((id: string, property: Partial<BoardItem>) => {
     pushHistory();
 
@@ -1214,11 +1318,11 @@ const App: React.FC = () => {
         items: board.items.map((i) =>
           i.id === id
             ? {
-                ...i,
-                content: sanitizedContent,
-                // Update lastSaved timestamp for NOTE items
-                ...(i.type === ItemType.NOTE ? { lastSaved: timestamp } : {})
-              }
+              ...i,
+              content: sanitizedContent,
+              // Update lastSaved timestamp for NOTE items
+              ...(i.type === ItemType.NOTE ? { lastSaved: timestamp } : {})
+            }
             : i
         ),
       }));
@@ -1515,53 +1619,6 @@ const App: React.FC = () => {
     }));
   }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
 
-  // Layer Management: Z-index control for drawings
-  const handleBringToFront = useCallback(() => {
-    if (selectedIds.length === 0) return;
-
-    pushHistory();
-    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
-    if (selectedDrawings.length === 0) {
-      showError('Select at least one drawing to bring to front');
-      return;
-    }
-
-    const maxZ = Math.max(...items.filter(i => i.type === ItemType.DRAWING).map((i) => i.zIndex || 0), 0);
-
-    updateBoard(currentBoardId, (board) => ({
-      ...board,
-      items: board.items.map((item) =>
-        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
-          ? { ...item, zIndex: maxZ + 1 }
-          : item
-      ),
-    }));
-    showSuccess('Brought to front');
-  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
-
-  const handleSendToBack = useCallback(() => {
-    if (selectedIds.length === 0) return;
-
-    pushHistory();
-    const selectedDrawings = items.filter((i) => selectedIds.includes(i.id) && i.type === ItemType.DRAWING);
-    if (selectedDrawings.length === 0) {
-      showError('Select at least one drawing to send to back');
-      return;
-    }
-
-    const minZ = Math.min(...items.filter(i => i.type === ItemType.DRAWING).map((i) => i.zIndex || 0), 0);
-
-    updateBoard(currentBoardId, (board) => ({
-      ...board,
-      items: board.items.map((item) =>
-        selectedIds.includes(item.id) && item.type === ItemType.DRAWING
-          ? { ...item, zIndex: minZ - 1 }
-          : item
-      ),
-    }));
-    showSuccess('Sent to back');
-  }, [selectedIds, items, currentBoardId, pushHistory, updateBoard]);
-
   const handleBringForward = useCallback(() => {
     if (selectedIds.length === 0) return;
 
@@ -1715,6 +1772,12 @@ const App: React.FC = () => {
       const isInputActive =
         e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 
+      // Mind Map Operations (TAB for child, ENTER for sibling)
+      handleMindMapKeyDown(e, selectedIds, items, connections, setEditingId);
+
+      // Arrow key navigation for mind maps
+      handleArrowNavigation(e, selectedIds, items, connections, setSelectedIds);
+
       if (!isInputActive) {
         if (e.key === 'Backspace' || e.key === 'Delete') {
           if (selectedIds.length > 0) handleDelete();
@@ -1813,6 +1876,7 @@ const App: React.FC = () => {
   }, [
     selectedIds,
     items,
+    connections,
     editingId,
     handleAddContainer,
     handleDelete,
@@ -1827,6 +1891,9 @@ const App: React.FC = () => {
     handleSendBackward,
     handleGroupDrawings,
     handleUngroupDrawings,
+    handleMindMapKeyDown,
+    handleArrowNavigation,
+    setSelectedIds,
   ]);
 
   // -- AI Logic --
@@ -2077,11 +2144,11 @@ const App: React.FC = () => {
             items: board.items.map((item) =>
               item.id === editingDrawingId && item.points
                 ? {
-                    ...item,
-                    points: item.points.map((p, i) =>
-                      i === draggingPointIndex ? { x, y } : p
-                    ),
-                  }
+                  ...item,
+                  points: item.points.map((p, i) =>
+                    i === draggingPointIndex ? { x, y } : p
+                  ),
+                }
                 : item
             ),
           }));
@@ -3223,6 +3290,39 @@ const App: React.FC = () => {
 
   const allCommands = [...commands, templateCommands];
 
+  // Drawing Panel Drag Handlers
+  const handlePanelMouseDown = (e: React.MouseEvent) => {
+    setIsDraggingPanel(true);
+    setDragOffset({
+      x: e.clientX - drawingPanelPosition.x,
+      y: e.clientY - drawingPanelPosition.y
+    });
+  };
+
+  useEffect(() => {
+    const handlePanelMouseMove = (e: MouseEvent) => {
+      if (isDraggingPanel) {
+        setDrawingPanelPosition({
+          x: e.clientX - dragOffset.x,
+          y: e.clientY - dragOffset.y
+        });
+      }
+    };
+
+    const handlePanelMouseUp = () => {
+      setIsDraggingPanel(false);
+    };
+
+    if (isDraggingPanel) {
+      window.addEventListener('mousemove', handlePanelMouseMove);
+      window.addEventListener('mouseup', handlePanelMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handlePanelMouseMove);
+      window.removeEventListener('mouseup', handlePanelMouseUp);
+    };
+  }, [isDraggingPanel, dragOffset]);
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-[#F7F9FA] relative text-gray-800 font-sans selection:bg-purple-100">
@@ -3309,8 +3409,8 @@ const App: React.FC = () => {
               const strokeType = (item.style?.textAlign as any) || 'solid';
               const dashArray =
                 strokeType === 'dashed' ? `${strokeWidth * 3} ${strokeWidth * 2}` :
-                strokeType === 'dotted' ? `${strokeWidth} ${strokeWidth}` :
-                'none';
+                  strokeType === 'dotted' ? `${strokeWidth} ${strokeWidth}` :
+                    'none';
 
               const isSelected = selectedIds.includes(item.id);
 
@@ -3428,8 +3528,8 @@ const App: React.FC = () => {
 
             const dashArray =
               drawingStrokeType === 'dashed' ? `${drawingStrokeWidth * 3} ${drawingStrokeWidth * 2}` :
-              drawingStrokeType === 'dotted' ? `${drawingStrokeWidth} ${drawingStrokeWidth}` :
-              'none';
+                drawingStrokeType === 'dotted' ? `${drawingStrokeWidth} ${drawingStrokeWidth}` :
+                  'none';
 
             // Use pressure-sensitive rendering for freehand with pressure data
             if (drawingShape === 'freehand' && hasPressureData(previewPoints)) {
@@ -3769,7 +3869,11 @@ const App: React.FC = () => {
               {activeItem && activeItem.id === item.id && !isConnectionMode && (
                 <div
                   className="absolute z-[60]"
-                  style={{ left: item.position.x + (item.width || 240) / 2, top: item.position.y }}
+                  style={{
+                    left: item.position.x + getItemDimensions(item).width / 2,
+                    top: item.position.y,
+                    transform: 'translateX(-50%)'
+                  }}
                 >
                   <ContextToolbar
                     item={activeItem}
@@ -3780,6 +3884,10 @@ const App: React.FC = () => {
                     onDelete={() => handleDelete(item.id)}
                     onTidyUp={handleTidyUp}
                     onExtractPalette={() => handleExtractPalette()}
+                    onBringToFront={() => handleBringToFront(item.id)}
+                    onSendToBack={() => handleSendToBack(item.id)}
+                    onIncreaseOpacity={() => handleIncreaseOpacity(item.id)}
+                    onDecreaseOpacity={() => handleDecreaseOpacity(item.id)}
                   />
                 </div>
               )}
@@ -3824,6 +3932,8 @@ const App: React.FC = () => {
         onAddBoard={handleAddBoard}
         onAddLink={handleAddLink}
         onAddKanban={handleAddKanban}
+        onAddMindMap={handleAddMindMap}
+        onAddComment={handleAddComment}
         onUploadImage={handleUploadClick}
         onToggleConnectionMode={() => {
           setIsConnectionMode(!isConnectionMode);
@@ -3850,140 +3960,175 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Drawing Tools Panel */}
+      {/* Drawing Tools Panel (Fixed Bottom Toolbar) */}
       {isDrawingMode && (
-        <div className="fixed left-4 bottom-6 bg-white dark:bg-gray-800 px-4 py-3 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-50 animate-in slide-in-from-left">
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
-              <Palette size={18} className="text-blue-600 dark:text-blue-400" />
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Drawing Tools</span>
-            </div>
+        <div className="fixed bottom-8 left-0 right-0 z-50 flex justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-2 pointer-events-auto animate-in slide-in-from-bottom-4 fade-in duration-300">
 
-            {/* Color Palette */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Color</label>
-              <div className="flex gap-1.5 flex-wrap max-w-[240px]">
-                {[
-                  { name: 'Blue', value: '#3B82F6' },
-                  { name: 'Red', value: '#EF4444' },
-                  { name: 'Green', value: '#10B981' },
-                  { name: 'Yellow', value: '#F59E0B' },
-                  { name: 'Purple', value: '#8B5CF6' },
-                  { name: 'Pink', value: '#EC4899' },
-                  { name: 'Gray', value: '#6B7280' },
-                  { name: 'Black', value: '#000000' },
-                ].map((color) => (
-                  <button
-                    key={color.value}
-                    onClick={() => setDrawingStrokeColor(color.value)}
-                    className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                      drawingStrokeColor === color.value
-                        ? 'border-blue-500 dark:border-blue-400 scale-110 shadow-md'
-                        : 'border-gray-300 dark:border-gray-600 hover:scale-105'
+            {/* Expanded Properties (Colors/Stroke) - Popover above toolbar */}
+            {isDrawingPanelExpanded && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 flex flex-col gap-4 mb-2 min-w-[280px]">
+                {/* Colors */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Color</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { name: 'Black', value: '#000000' },
+                      { name: 'Blue', value: '#3B82F6' },
+                      { name: 'Red', value: '#EF4444' },
+                      { name: 'Green', value: '#10B981' },
+                      { name: 'Yellow', value: '#F59E0B' },
+                      { name: 'Purple', value: '#8B5CF6' },
+                    ].map((color) => (
+                      <button
+                        key={color.value}
+                        onClick={() => setDrawingStrokeColor(color.value)}
+                        className={`w-8 h-8 rounded-full border-2 transition-all ${drawingStrokeColor === color.value
+                          ? 'border-blue-500 scale-110 shadow-sm'
+                          : 'border-transparent hover:scale-105 hover:shadow-sm'
+                          }`}
+                        style={{ backgroundColor: color.value }}
+                        title={color.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stroke Settings */}
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Stroke</span>
+                  <div className="flex items-center justify-between gap-4">
+                    {/* Widths */}
+                    <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 gap-1">
+                      {[2, 4, 8].map((w) => (
+                        <button
+                          key={w}
+                          onClick={() => setDrawingStrokeWidth(w)}
+                          className={`w-8 h-8 flex items-center justify-center rounded-md transition-all ${drawingStrokeWidth === w
+                            ? 'bg-white dark:bg-gray-600 shadow-sm text-black dark:text-white'
+                            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                            }`}
+                          title={`${w}px`}
+                        >
+                          <div className="bg-current rounded-full" style={{ width: w, height: w }} />
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Types */}
+                    <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 gap-1">
+                      {[
+                        { val: 'solid', label: 'Solid' },
+                        { val: 'dashed', label: 'Dash' },
+                      ].map((t) => (
+                        <button
+                          key={t.val}
+                          onClick={() => setDrawingStrokeType(t.val as any)}
+                          className={`px-3 h-8 flex items-center justify-center rounded-md text-xs font-medium transition-all ${drawingStrokeType === t.val
+                            ? 'bg-white dark:bg-gray-600 shadow-sm text-black dark:text-white'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Main Toolbar */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 px-2 py-2 flex items-center gap-2">
+
+              {/* Tools Group */}
+              <div className="flex items-center gap-1 px-1">
+                <button
+                  onClick={() => { setDrawingShape('freehand'); setIsEraserMode(false); }}
+                  className={`p-2.5 rounded-xl transition-all ${drawingShape === 'freehand' && !isEraserMode
+                    ? 'bg-blue-50 text-blue-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                    aria-label={`Select ${color.name}`}
+                  title="Freehand Pen"
+                >
+                  <PenLine size={20} strokeWidth={2.5} />
+                </button>
+                <button
+                  onClick={() => { setDrawingShape('arrow'); setIsEraserMode(false); }}
+                  className={`p-2.5 rounded-xl transition-all ${drawingShape === 'arrow' && !isEraserMode
+                    ? 'bg-blue-50 text-blue-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}
+                  title="Arrow"
+                >
+                  <ArrowRight size={20} strokeWidth={2.5} />
+                </button>
+                <button
+                  onClick={() => setIsEraserMode(!isEraserMode)}
+                  className={`p-2.5 rounded-xl transition-all ${isEraserMode
+                    ? 'bg-red-50 text-red-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}
+                  title="Eraser"
+                >
+                  <Eraser size={20} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              <div className="w-px h-8 bg-gray-200 dark:bg-gray-700 mx-1" />
+
+              {/* Properties Toggle */}
+              <div className="flex items-center gap-1 px-1">
+                <button
+                  onClick={() => setIsDrawingPanelExpanded(!isDrawingPanelExpanded)}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${isDrawingPanelExpanded ? 'bg-gray-50 dark:bg-gray-700' : ''}`}
+                  title="Color & Style Settings"
+                >
+                  <div
+                    className="w-5 h-5 rounded-full border border-gray-200 shadow-sm"
+                    style={{ backgroundColor: drawingStrokeColor }}
                   />
-                ))}
+                  <Sliders size={18} className="text-gray-500" />
+                </button>
               </div>
-            </div>
 
-            {/* Stroke Width */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Width</label>
-              <div className="flex gap-2">
-                {[
-                  { label: 'Thin', value: 2 },
-                  { label: 'Medium', value: 4 },
-                  { label: 'Thick', value: 8 },
-                ].map((width) => (
-                  <button
-                    key={width.value}
-                    onClick={() => setDrawingStrokeWidth(width.value)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      drawingStrokeWidth === width.value
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                    aria-label={`${width.label} stroke width`}
-                  >
-                    {width.label}
-                  </button>
-                ))}
+              <div className="w-px h-8 bg-gray-200 dark:bg-gray-700 mx-1" />
+
+              {/* Undo/Redo */}
+              <div className="flex items-center gap-1 px-1">
+                <button
+                  onClick={undo}
+                  className="p-2.5 text-gray-400 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-colors"
+                  title="Undo"
+                >
+                  <Undo size={20} strokeWidth={2.5} />
+                </button>
+                <button
+                  onClick={redo}
+                  className="p-2.5 text-gray-400 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-colors"
+                  title="Redo"
+                >
+                  <Redo size={20} strokeWidth={2.5} />
+                </button>
               </div>
-            </div>
 
-            {/* Stroke Type */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Style</label>
-              <div className="flex gap-2">
-                {[
-                  { label: 'Solid', value: 'solid' as const },
-                  { label: 'Dashed', value: 'dashed' as const },
-                  { label: 'Dotted', value: 'dotted' as const },
-                ].map((type) => (
-                  <button
-                    key={type.value}
-                    onClick={() => setDrawingStrokeType(type.value)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      drawingStrokeType === type.value
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                    aria-label={`${type.label} stroke style`}
-                  >
-                    {type.label}
-                  </button>
-                ))}
+              <div className="w-px h-8 bg-gray-200 dark:bg-gray-700 mx-1" />
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pl-2 pr-1">
+                <button
+                  onClick={() => setIsDrawingMode(false)}
+                  className="px-4 py-2 text-sm font-semibold text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={() => setIsDrawingMode(false)}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-[#F97316] hover:bg-[#EA580C] rounded-xl shadow-sm hover:shadow transition-all active:scale-95"
+                >
+                  Save
+                </button>
               </div>
-            </div>
-
-            {/* Shape Tool */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Shape</label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: 'Freehand', value: 'freehand' as const, icon: <PenLine size={16} /> },
-                  { label: 'Line', value: 'line' as const, icon: <Minus size={16} /> },
-                  { label: 'Rectangle', value: 'rectangle' as const, icon: <Square size={16} /> },
-                  { label: 'Circle', value: 'circle' as const, icon: <Circle size={16} /> },
-                  { label: 'Arrow', value: 'arrow' as const, icon: <ArrowRight size={16} /> },
-                ].map((shape) => (
-                  <button
-                    key={shape.value}
-                    onClick={() => {
-                      setDrawingShape(shape.value);
-                      setIsEraserMode(false);
-                    }}
-                    className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      drawingShape === shape.value && !isEraserMode
-                        ? 'bg-blue-600 text-white shadow-md'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                    aria-label={`Draw ${shape.label}`}
-                    title={shape.label}
-                  >
-                    {shape.icon}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Eraser Toggle */}
-            <div className="flex flex-col gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => setIsEraserMode(!isEraserMode)}
-                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                  isEraserMode
-                    ? 'bg-red-600 text-white shadow-md'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-                aria-label="Toggle Eraser Mode"
-              >
-                <Eraser size={18} />
-                <span>{isEraserMode ? 'Eraser Active' : 'Eraser'}</span>
-              </button>
             </div>
           </div>
         </div>

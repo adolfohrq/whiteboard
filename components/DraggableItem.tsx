@@ -21,10 +21,12 @@ import {
   StickyNote,
   Layout,
   Upload,
+  MessageSquare,
 } from 'lucide-react';
 import { expandContent } from '../services/geminiService';
 import { ResizeHandles } from './ResizeHandles';
 import { ContainerSettings } from './ContainerSettings';
+import { getItemDimensions } from '../utils/itemDimensions';
 
 interface DraggableItemProps {
   item: BoardItem;
@@ -111,27 +113,23 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
   }, [isEditing, item.type]);
 
   const getZIndex = () => {
+    // If item has explicit zIndex set by user, use that as base
+    const baseZIndex = item.zIndex !== undefined ? item.zIndex : 0;
+
+    // Apply type-specific and selection modifiers on top of base zIndex
+    if (item.zIndex !== undefined) {
+      // User has set custom zIndex, just add selection boost if selected
+      return isSelected ? baseZIndex + 100 : baseZIndex;
+    }
+
+    // Default zIndex logic for items without custom zIndex
     if (item.type === ItemType.CONTAINER) return isSelected ? 5 : 1;
     if (item.type === ItemType.KANBAN) return isSelected ? 6 : 2; // Kanban slightly above Container
     if (item.type === ItemType.BOARD && isDragOver) return 5;
     return isSelected ? 50 : 10;
   };
 
-  const getDimensions = () => {
-    if (item.type === ItemType.CONTAINER && item.collapsed) {
-      return { width: item.width || 500, height: 48 };
-    }
-    if (item.type === ItemType.KANBAN) {
-      return { width: item.width || 300, height: item.height || 400 };
-    }
-    // Default dimensions if not set, or use stored values
-    return {
-      width: item.width || 240,
-      height: item.height || (item.type === ItemType.NOTE ? 200 : 'auto'),
-    };
-  };
-
-  const { width, height } = getDimensions();
+  const { width, height } = getItemDimensions(item);
 
   // Convert auto height to number for ResizeHandles if needed,
   // though ResizeHandles expects number. If height is auto, we pass a default for the handle but rendered div is auto.
@@ -260,12 +258,40 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
 
   const getTypographyStyle = (style?: ItemStyle): React.CSSProperties => {
     if (!style) return { fontSize: '0.875rem' };
-    const sizes = { sm: '0.75rem', md: '0.875rem', lg: '1.25rem', xl: '1.5rem' };
+    const sizes = { sm: '0.75rem', md: '0.875rem', lg: '1.25rem', xl: '1.5rem', '2xl': '1.875rem' };
+    const lineHeights = {
+      tight: '1.25',
+      normal: '1.5',
+      relaxed: '1.75',
+    };
+    const shadows = {
+      none: 'none',
+      sm: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+      md: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+      lg: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+      xl: '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)',
+    };
+
     return {
-      fontSize: sizes[style.fontSize],
+      // Typography
+      fontSize: sizes[style.fontSize] || sizes.md,
       fontWeight: style.fontWeight,
       textAlign: style.textAlign,
-      lineHeight: style.fontSize === 'lg' || style.fontSize === 'xl' ? '1.2' : '1.5',
+      fontStyle: style.fontStyle,
+      textDecoration: style.textDecoration,
+      lineHeight: style.lineHeight ? lineHeights[style.lineHeight] : (style.fontSize === 'lg' || style.fontSize === 'xl' || style.fontSize === '2xl' ? '1.25' : '1.5'),
+
+      // Visual Effects
+      opacity: style.opacity !== undefined ? style.opacity : 1,
+      borderWidth: style.borderWidth !== undefined ? `${style.borderWidth}px` : undefined,
+      borderColor: style.borderColor,
+      borderStyle: style.borderWidth && style.borderWidth > 0 ? 'solid' : undefined,
+      borderRadius: style.borderRadius !== undefined ? `${style.borderRadius}px` : undefined,
+      boxShadow: style.shadow ? shadows[style.shadow] : undefined,
+      backdropFilter: style.blur ? `blur(${style.blur}px)` : undefined,
+
+      // Background
+      backgroundColor: style.backgroundColor,
     };
   };
 
@@ -275,19 +301,19 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
         // Determine border style classes
         const borderStyleClass =
           item.borderStyle === 'dashed' ? 'border-dashed' :
-          item.borderStyle === 'rounded' ? 'rounded-2xl' :
-          'border-solid rounded-xl';
+            item.borderStyle === 'rounded' ? 'rounded-2xl' :
+              'border-solid rounded-xl';
 
         const padding = item.padding || 12;
 
         // Background image style
         const backgroundStyle = item.backgroundImage
           ? {
-              backgroundImage: `url(${item.backgroundImage})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat'
-            }
+            backgroundImage: `url(${item.backgroundImage})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat'
+          }
           : {};
 
         return (
@@ -715,6 +741,58 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
           </div>
         );
 
+      case ItemType.COMMENT:
+        return (
+          <div className="flex flex-col h-full relative group/comment drop-shadow-sm transition-all hover:drop-shadow-md">
+            {/* Tail */}
+            <div
+              className="absolute -bottom-1.5 -left-1 w-5 h-5 bg-yellow-100 transform rotate-45 z-0 border-b border-l border-yellow-200"
+              style={{
+                backgroundColor: item.color || '#FEF3C7',
+                borderColor: item.color ? 'rgba(0,0,0,0.1)' : undefined,
+              }}
+            />
+
+            <div
+              className="flex-1 w-full h-full bg-yellow-100 rounded-2xl rounded-bl-none border border-yellow-200 overflow-hidden relative z-10 flex flex-col"
+              style={{
+                backgroundColor: item.color || '#FEF3C7',
+                borderColor: item.color ? 'rgba(0,0,0,0.1)' : undefined,
+              }}
+              onDoubleClick={handleDoubleClick}
+            >
+              {/* Header */}
+              <div
+                className="h-8 flex-shrink-0 flex items-center justify-between px-3 border-b border-black/5 cursor-grab active:cursor-grabbing bg-black/5"
+                onMouseDown={handleMouseDown}
+              >
+                <div className="flex items-center gap-1.5 text-black/60">
+                  <MessageSquare size={14} strokeWidth={2} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                    Comment
+                  </span>
+                </div>
+                {/* Date/Time could go here */}
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 p-0 relative">
+                <textarea
+                  className="w-full h-full p-3 bg-transparent resize-none focus:outline-none text-sm text-gray-800 placeholder-black/30 leading-relaxed"
+                  value={item.content}
+                  onChange={(e) => onContentChange(item.id, e.target.value)}
+                  placeholder="Leave a note..."
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{
+                    ...getTypographyStyle(item.style),
+                    fontSize: item.style?.fontSize ? undefined : '0.875rem', // Default size
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+
       case ItemType.TODO:
         const totalTodos = item.todos?.length || 0;
         const completedTodos = item.todos?.filter((t) => t.done).length || 0;
@@ -764,13 +842,12 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
                   onDragOver={(e) => handleTodoDragOver(e, todo.id)}
                   onDrop={(e) => handleTodoDrop(e, todo.id)}
                   onDragEnd={handleTodoDragEnd}
-                  className={`flex items-start gap-2.5 group/item rounded-lg px-2 py-1.5 -mx-2 transition-all ${
-                    draggedTodoId === todo.id
+                  className={`flex items-start gap-2.5 group/item rounded-lg px-2 py-1.5 -mx-2 transition-all ${draggedTodoId === todo.id
                       ? 'opacity-50 cursor-grabbing'
                       : dragOverTodoId === todo.id
                         ? 'bg-blue-50 dark:bg-blue-900/20 border-t-2 border-blue-400'
                         : 'cursor-grab hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                  }`}
+                    }`}
                 >
                   <button
                     onClick={() => toggleTodo(todo.id)}
@@ -920,11 +997,11 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
                   )}
                 </div>
               )}
-              
+
               <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
 
               <div className="absolute bottom-0 left-0 right-0 p-4 text-white z-0 pointer-events-none">
-                 <div className="font-semibold text-base leading-tight mb-1 line-clamp-2 drop-shadow-sm">
+                <div className="font-semibold text-base leading-tight mb-1 line-clamp-2 drop-shadow-sm">
                   {item.title || item.content}
                 </div>
                 <div className="text-xs text-gray-200 line-clamp-1 drop-shadow-sm">
@@ -981,11 +1058,10 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
   return (
     <div
       style={{ ...style, ...getContainerStyles() }}
-      className={`group transition-shadow duration-300 ease-in-out ${
-        item.type !== ItemType.CONTAINER && !isKanban
+      className={`group transition-shadow duration-300 ease-in-out ${item.type !== ItemType.CONTAINER && !isKanban
           ? `rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 ${isSelected ? 'ring-2 ring-blue-500 shadow-xl' : 'hover:shadow-xl hover:ring-2 hover:ring-blue-400/50'}`
           : ''
-      } ${isKanban ? (isSelected ? 'ring-2 ring-blue-500 rounded-xl' : '') : ''} ${isConnectionMode && item.type !== ItemType.CONTAINER ? 'cursor-crosshair hover:ring-2 hover:ring-purple-400 dark:hover:ring-purple-500' : ''}`}
+        } ${isKanban ? (isSelected ? 'ring-2 ring-blue-500 rounded-xl' : '') : ''} ${isConnectionMode && item.type !== ItemType.CONTAINER ? 'cursor-crosshair hover:ring-2 hover:ring-purple-400 dark:hover:ring-purple-500' : ''}`}
     >
       <div
         className={`rounded-xl overflow-hidden h-full transition-colors duration-300 ${item.type === ItemType.CONTAINER || isKanban ? 'bg-transparent' : ''}`}
@@ -1006,8 +1082,8 @@ export const DraggableItemComponent: React.FC<DraggableItemProps> = ({
           width={width}
           height={numericHeight}
           onResize={(w, h) => onResize && onResize(item.id, w, h)}
-          onResizeStart={onResizeStart || (() => {})}
-          onResizeEnd={onResizeEnd || (() => {})}
+          onResizeStart={onResizeStart || (() => { })}
+          onResizeEnd={onResizeEnd || (() => { })}
           zoom={zoom}
         />
       )}

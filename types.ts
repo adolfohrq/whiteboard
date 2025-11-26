@@ -8,6 +8,7 @@ export enum ItemType {
   SWATCH = 'SWATCH', // New type for Color Palettes
   KANBAN = 'KANBAN', // New type for Kanban Columns
   DRAWING = 'DRAWING', // Freehand drawing path
+  COMMENT = 'COMMENT', // New type for Comment bubbles
 }
 
 export interface Position {
@@ -29,9 +30,25 @@ export interface Connection {
 }
 
 export interface ItemStyle {
-  fontSize: 'sm' | 'md' | 'lg' | 'xl';
-  fontWeight: 'normal' | 'bold';
-  textAlign: 'left' | 'center' | 'right';
+  // Typography
+  fontSize: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  fontWeight: 'normal' | 'bold' | 'light';
+  textAlign: 'left' | 'center' | 'right' | 'justify';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline' | 'line-through';
+  lineHeight?: 'tight' | 'normal' | 'relaxed';
+
+  // Visual Effects
+  opacity?: number; // 0 to 1
+  borderWidth?: number; // in pixels
+  borderColor?: string;
+  borderRadius?: number; // in pixels
+  shadow?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
+  blur?: number; // backdrop blur in pixels
+
+  // Background
+  backgroundColor?: string;
+  backgroundOpacity?: number; // 0 to 1
 }
 
 export interface BoardItem {

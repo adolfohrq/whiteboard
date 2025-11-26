@@ -10,6 +10,7 @@ const ItemTypeEnum = z.enum([
   'CONTAINER',
   'KANBAN',
   'SWATCH',
+  'COMMENT',
 ]);
 
 // Base schema for all board items
@@ -85,6 +86,10 @@ const SwatchSchema = BaseItemSchema.extend({
   swatchColor: z.string().optional(),
 });
 
+const CommentSchema = BaseItemSchema.extend({
+  type: z.literal(ItemTypeEnum.enum.COMMENT),
+});
+
 // Union of all item schemas
 export const BoardItemSchema = z.discriminatedUnion('type', [
   NoteSchema,
@@ -95,6 +100,7 @@ export const BoardItemSchema = z.discriminatedUnion('type', [
   ContainerSchema,
   KanbanSchema,
   SwatchSchema,
+  CommentSchema,
 ]);
 
 export type BoardItemInput = z.infer<typeof BoardItemSchema>;

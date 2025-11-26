@@ -12,6 +12,8 @@ import {
   Undo2,
   Redo2,
   PenTool,
+  Workflow,
+  MessageSquare,
 } from 'lucide-react';
 
 interface TooltipWrapperProps {
@@ -36,6 +38,8 @@ interface ToolbarProps {
   onAddLink: () => void;
   onAddBoard: () => void;
   onAddKanban: () => void;
+  onAddMindMap: () => void;
+  onAddComment: () => void;
   onUploadImage: () => void;
   onToggleConnectionMode: () => void;
   onToggleDrawingMode: () => void;
@@ -66,15 +70,12 @@ const ToolbarButton = ({
     'p-2 rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-opacity-75';
 
   const variantClasses = {
-    default: `text-gray-600 hover:bg-gray-100 hover:text-black active:bg-gray-200 ${
-      isActive ? 'bg-gray-100 text-black' : ''
-    }`,
-    primary: `bg-gradient-to-tr from-purple-50 to-blue-50 text-purple-600 hover:text-purple-700 hover:shadow-md border border-purple-100 ${
-      isActive ? 'shadow-md' : ''
-    }`,
-    ghost: `text-gray-600 hover:bg-gray-100 hover:text-black active:bg-gray-200 ${
-      isActive ? 'bg-blue-600 text-white shadow-md' : ''
-    }`,
+    default: `text-gray-600 hover:bg-gray-100 hover:text-black active:bg-gray-200 ${isActive ? 'bg-gray-100 text-black' : ''
+      }`,
+    primary: `bg-gradient-to-tr from-purple-50 to-blue-50 text-purple-600 hover:text-purple-700 hover:shadow-md border border-purple-100 ${isActive ? 'shadow-md' : ''
+      }`,
+    ghost: `text-gray-600 hover:bg-gray-100 hover:text-black active:bg-gray-200 ${isActive ? 'bg-blue-600 text-white shadow-md' : ''
+      }`,
   };
 
   const disabledClasses = 'disabled:text-gray-300 disabled:cursor-not-allowed';
@@ -99,6 +100,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onAddLink,
   onAddBoard,
   onAddKanban,
+  onAddMindMap,
+  onAddComment,
   onUploadImage,
   onToggleConnectionMode,
   onToggleDrawingMode,
@@ -147,6 +150,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <CheckSquare size={22} strokeWidth={1.5} />
           </ToolbarButton>
         </TooltipWrapper>
+        <TooltipWrapper label="Add Comment">
+          <ToolbarButton aria-label="Add Comment" onClick={onAddComment}>
+            <MessageSquare size={22} strokeWidth={1.5} />
+          </ToolbarButton>
+        </TooltipWrapper>
         <TooltipWrapper label="Paste Link">
           <ToolbarButton aria-label="Paste Link" onClick={onAddLink}>
             <LinkIcon size={22} strokeWidth={1.5} />
@@ -174,6 +182,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <TooltipWrapper label="Free Group">
           <ToolbarButton aria-label="Add Free Group" onClick={onAddContainer}>
             <Layout size={22} strokeWidth={1.5} />
+          </ToolbarButton>
+        </TooltipWrapper>
+        <TooltipWrapper label="Mind Map">
+          <ToolbarButton aria-label="Create Mind Map" onClick={onAddMindMap} variant="primary">
+            <Workflow size={22} strokeWidth={1.5} />
           </ToolbarButton>
         </TooltipWrapper>
       </div>
